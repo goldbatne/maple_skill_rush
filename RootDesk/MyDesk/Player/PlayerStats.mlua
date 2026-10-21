@@ -374,7 +374,9 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_hp")
 		            if value < 1 then value = 1000 end
-		            value += self:GetInheritedCompanionStats().maxHp
+			value += self:GetInheritedCompanionStats().maxHp
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then value += collection.MilestoneHpBonus end
 		            local pc = self.Entity.PlayerComponent
 		            if _GameData.RogueRunActive and isvalid(pc) then
 		                local stack = _GameData:GetRunUpgradeStack(pc.UserId, "max_hp")
@@ -734,7 +736,9 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_attack")
 		            if value < 1 then value = _GameData:GetBalance("player_base_atk") end
-		            value += self:GetInheritedCompanionStats().basicAttack
+			value += self:GetInheritedCompanionStats().basicAttack
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then value += collection.MilestoneAttackBonus end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then
@@ -757,7 +761,9 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_attack")
 		            if value < 1 then value = _GameData:GetBalance("player_base_atk") end
-		            value += self:GetInheritedCompanionStats().basicAttack
+			value += self:GetInheritedCompanionStats().basicAttack
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then value += collection.MilestoneAttackBonus end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then
@@ -772,7 +778,9 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_defense")
 		            if value < 0 then value = 0 end
-		            value += self:GetInheritedCompanionStats().defense
+			value += self:GetInheritedCompanionStats().defense
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then value += collection.MilestoneDefenseBonus end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then

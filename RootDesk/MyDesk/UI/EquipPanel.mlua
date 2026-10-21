@@ -19,6 +19,12 @@ script EquipPanel extends Logic
 
 	property Entity gridRoot = "c0d75b13-9346-440a-bb7e-2735a31b4779"
 
+	property Entity milestoneSummary = "cfcb3a97-0198-4b82-ae91-ba99143b9db0"
+
+	property Entity milestonePopup = "7f385218-e5b1-4d74-9c68-894ed79223e1"
+
+	property Entity milestoneClose = "b368f1db-34d3-4925-8862-2cdc96490e51"
+
 	property TextGUIRendererComponent lblDesc = "3bca6c15-07a1-4280-8c5e-01ea32fe6c65"
 
 	property TextGUIRendererComponent lblOwned = "e37e5106-faea-4342-924b-6e130fcbad8e"
@@ -103,6 +109,12 @@ script EquipPanel extends Logic
 		        self.handlers.close = self.btnClose.Entity:ConnectEvent(ButtonClickEvent, function()
 		            self:SetOpen(false)
 		        end)
+		self.handlers.milestoneOpen = self.milestoneSummary:ConnectEvent(ButtonClickEvent, function()
+			self:ShowMilestonePopup(true)
+		end)
+		self.handlers.milestoneClose = self.milestoneClose:ConnectEvent(ButtonClickEvent, function()
+			self:ShowMilestonePopup(false)
+		end)
 		        self.ticketConfirm = self.windowRoot:GetChildByName("TicketConfirm", true)
 		        if isvalid(self.ticketConfirm) then
 		            self.ticketConfirm.Enable = false
@@ -198,6 +210,12 @@ script EquipPanel extends Logic
 		        if self.handlers ~= nil then
 		            if self.handlers.open ~= nil then self.btnOpen.Entity:DisconnectEvent(ButtonClickEvent, self.handlers.open) end
 		            if self.handlers.close ~= nil then self.btnClose.Entity:DisconnectEvent(ButtonClickEvent, self.handlers.close) end
+			if self.handlers.milestoneOpen ~= nil then
+				self.milestoneSummary:DisconnectEvent(ButtonClickEvent, self.handlers.milestoneOpen)
+			end
+			if self.handlers.milestoneClose ~= nil then
+				self.milestoneClose:DisconnectEvent(ButtonClickEvent, self.handlers.milestoneClose)
+			end
 		            if isvalid(self.ticketConfirm) then
 		                local dialog = self.ticketConfirm:GetChildByName("Dialog", false)
 		                local cancel = dialog ~= nil and dialog:GetChildByName("Cancel", false) or nil
@@ -259,6 +277,7 @@ script EquipPanel extends Logic
 		            self.ticketConfirm.Enable = false
 		            self.ticketConfirm:SetVisible(false)
 		        end
+		self:ShowMilestonePopup(false)
 		        local showOpenButton = not (open and self:IsMonsterLobby())
 		        self.btnOpen.Entity.Enable = showOpenButton
 		        self.btnOpen.Entity:SetVisible(showOpenButton)
@@ -279,6 +298,79 @@ script EquipPanel extends Logic
 		            self.ticketAwaitingMonsterId = ""
 		            log("[RunSkillWindow] close input released")
 		        end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowMilestonePopup(boolean show)
+		-- 요약을 눌렀을 때만 상세를 올리고 닫거나 화면을 전환하면 입력을 비운다.
+		if not isvalid(self.milestonePopup) then return end
+		show = show and self.isOpen and self:IsMonsterLobby()
+		self.milestonePopup.Enable = show
+		self.milestonePopup:SetVisible(show)
+		if show then
+			self:RenderMilestoneSummary()
+			_UILogic:SetSiblingIndex(self.milestonePopup.UITransformComponent, 1000001)
+		end
+		log("[MonsterMilestoneUI] popup=" .. tostring(show))
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderMilestoneSummary()
+		-- 합산 현황과 현재 선택한 몬스터의 네 가지 10단계 보상을 보여 준다.
+		if not self:IsMonsterLobby() then return end
+		local collection = self:GetCollection()
+		if collection == nil then return end
+		local monsterIds = _GameData:GetTameableMonsterIds()
+		local owned = 0
+		for _, monsterId in ipairs(monsterIds) do
+			if collection:GetTamedCount(monsterId) > 0 then owned += 1 end
+		end
+		local maxPerMonster = math.floor(_GameData:GetBalance("monster_level_cap") / 10)
+			+ math.floor(_GameData:GetBalance("monster_enhance_cap") / 10)
+		local total = #monsterIds * maxPerMonster
+		local label = "보유 " .. tostring(owned) .. "/" .. tostring(#monsterIds)
+			.. "  ·  성장 보너스 " .. tostring(collection.MilestoneUnlockedCount)
+			.. "/" .. tostring(total) .. "  ▶"
+		if isvalid(self.milestoneSummary.TextGUIRendererComponent) then
+			self.milestoneSummary.TextGUIRendererComponent.Text = label
+		end
+		if not self.milestonePopup.Enable then return end
+		local totals = self.milestonePopup:GetChildByName("Totals", false)
+		if isvalid(totals) then
+			totals.TextGUIRendererComponent.Text = "보유 효과  HP +"
+				.. tostring(collection.MilestoneHpBonus) .. "   공격 +"
+				.. tostring(collection.MilestoneAttackBonus) .. "   방어 +"
+				.. tostring(collection.MilestoneDefenseBonus)
+		end
+		local selected = self.selectedMonsterId
+		local monster = selected ~= "" and _GameData:GetMonster(selected) or nil
+		local title = self.milestonePopup:GetChildByName("Selected", false)
+		if isvalid(title) then
+			title.TextGUIRendererComponent.Text = monster ~= nil
+				and (monster.name .. "  ·  Lv." .. tostring(collection:GetMonsterLevel(selected))
+					.. "  /  +" .. tostring(collection:GetMonsterEnhance(selected)))
+				or "몬스터를 선택하면 성장 보상을 확인할 수 있습니다"
+		end
+		local rows = self.milestonePopup:GetChildByName("Rows", true)
+		if not isvalid(rows) then return end
+		if monster == nil then rows.TextGUIRendererComponent.Text = "" return end
+		local lines = {}
+		for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
+			local cap = math.floor(_GameData:GetBalance(kind == "LEVEL"
+				and "monster_level_cap" or "monster_enhance_cap"))
+			local stage = kind == "LEVEL" and collection:GetMonsterLevel(selected)
+				or collection:GetMonsterEnhance(selected)
+			for threshold = 10, cap, 10 do
+				local bonus = collection:GetMonsterMilestoneBonus(selected, kind, threshold)
+				if bonus ~= nil then
+					local prefix = kind == "LEVEL" and "Lv." or "+"
+					lines[#lines + 1] = (stage >= threshold and "획득  " or "미달성  ")
+						.. prefix .. tostring(threshold) .. "  →  " .. bonus.stat
+						.. " +" .. tostring(bonus.value)
+				end
+			end
+		end
+		rows.TextGUIRendererComponent.Text = table.concat(lines, "\n")
 	end
 
 	@ExecSpace("ClientOnly")
@@ -1649,6 +1741,7 @@ script EquipPanel extends Logic
 		                    end
 		                end
 		            end
+		self:RenderMilestoneSummary()
 		        end
 		        local title = self.windowRoot:GetChildByName("Title", true)
 		        if isvalid(title) and isvalid(title.TextGUIRendererComponent) then
@@ -1885,6 +1978,13 @@ script EquipPanel extends Logic
 		            title.UITransformComponent.RectSize = Vector2((windowSize.x - 36) / 2, 56)
 		            title.UITransformComponent.anchoredPosition = Vector2(0, -14)
 		        end
+		if isvalid(self.milestoneSummary) then
+			local showMilestone = self:IsMonsterLobby()
+			self.milestoneSummary.Enable = showMilestone
+			self.milestoneSummary:SetVisible(showMilestone)
+			if not showMilestone and isvalid(self.milestonePopup)
+				and self.milestonePopup.Enable then self:ShowMilestonePopup(false) end
+		end
 		        local grid = self.windowRoot:GetChildByName("Grid", false)
 		        if isvalid(grid) then
 		            if grid.Enable == compact then
@@ -1901,7 +2001,7 @@ script EquipPanel extends Logic
 		            end
 		            local gridSize = runFilled
 		                and Vector2(600, shortRun and 230 or 360) or (self:IsMonsterLobby()
-                    and Vector2(574, 482) or Vector2(552, 508))
+					and Vector2(574, 364) or Vector2(552, 508))
 		            local currentGridSize = grid.UITransformComponent.RectSize
 		            if currentGridSize.x ~= gridSize.x or currentGridSize.y ~= gridSize.y then
 		                grid.UITransformComponent.RectSize = gridSize

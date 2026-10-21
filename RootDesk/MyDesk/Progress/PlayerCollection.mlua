@@ -14,6 +14,18 @@ script PlayerCollection extends Component
 	property SyncTable<string, integer> MonsterEnhances
 
 	@TargetUserSync
+	property integer MilestoneHpBonus = 0
+
+	@TargetUserSync
+	property integer MilestoneAttackBonus = 0
+
+	@TargetUserSync
+	property integer MilestoneDefenseBonus = 0
+
+	@TargetUserSync
+	property integer MilestoneUnlockedCount = 0
+
+	@TargetUserSync
 	property integer MonsterGrowthCurrency = 0
 
 	@TargetUserSync
@@ -202,6 +214,62 @@ script PlayerCollection extends Component
 		        return math.min(cap, math.max(0, math.floor(n)))
 	end
 
+	method table GetMonsterMilestoneBonus(string monsterId, string kind, integer threshold)
+		-- 종·성장 종류·10단계 식별자로 고정 추첨한다. 재접속/재선택으로 재추첨되지 않는다.
+		if threshold < 10 or threshold % 10 ~= 0 then return nil end
+		if kind ~= "LEVEL" and kind ~= "ENHANCE" then return nil end
+		local key = monsterId .. ":" .. kind .. ":" .. tostring(threshold)
+		local hash = 17
+		for i = 1, #key do hash = (hash * 31 + string.byte(key, i)) % 1000003 end
+		local index = hash % 3
+		if index == 0 then return {stat = "HP", value = kind == "LEVEL" and 15 or 25} end
+		if index == 1 then return {stat = "ATK", value = kind == "LEVEL" and 1 or 2} end
+		return {stat = "DEF", value = kind == "LEVEL" and 1 or 2}
+	end
+
+	method table CalculateMilestoneBonuses(table grownMonsters)
+		-- 입력 목록만 합산하므로 저장 원장을 바꾸지 않고 경계값을 검증할 수 있다.
+		local hp, attack, defense, unlocked = 0, 0, 0, 0
+		for _, grown in ipairs(grownMonsters) do
+			for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
+				local stage = kind == "LEVEL" and grown.level or grown.enhance
+				for threshold = 10, stage, 10 do
+					local bonus = self:GetMonsterMilestoneBonus(grown.monsterId, kind, threshold)
+					if bonus ~= nil then
+						unlocked += 1
+						if bonus.stat == "HP" then hp += bonus.value
+						elseif bonus.stat == "ATK" then attack += bonus.value
+						else defense += bonus.value end
+					end
+				end
+			end
+		end
+		return {maxHp = hp, basicAttack = attack, defense = defense, count = unlocked}
+	end
+
+	@ExecSpace("ServerOnly")
+	method void RebuildMilestoneBonuses()
+		-- 보유한 모든 종을 합산하므로 미편성 몬스터의 성장에도 영구 보상이 생긴다.
+		local grownMonsters = {}
+		for _, monsterId in ipairs(_GameData:GetTameableMonsterIds()) do
+			if self:GetTamedCount(monsterId) > 0 then
+				grownMonsters[#grownMonsters + 1] = {
+					monsterId = monsterId,
+					level = self:GetMonsterLevel(monsterId),
+					enhance = self:GetMonsterEnhance(monsterId)
+				}
+			end
+		end
+		local total = self:CalculateMilestoneBonuses(grownMonsters)
+		self.MilestoneHpBonus = total.maxHp
+		self.MilestoneAttackBonus = total.basicAttack
+		self.MilestoneDefenseBonus = total.defense
+		self.MilestoneUnlockedCount = total.count
+		log("[MonsterMilestone] unlocked=" .. tostring(total.count)
+			.. " hp=" .. tostring(total.maxHp) .. " atk=" .. tostring(total.basicAttack)
+			.. " def=" .. tostring(total.defense))
+	end
+
 	method integer GetMonsterGrowthStepCost(integer growthStep)
 		        -- 두 재화의 1회 성장 비용을 누적 계산한다. 첫 성장은 5개,
 		        -- 이후 증가량은 단계 * 5개이며 매 5번째 증가량만 40개로 대체한다.
@@ -363,6 +431,7 @@ script PlayerCollection extends Component
 
 	@ExecSpace("ServerOnly")
 	method void RefreshPlayerInheritedStats()
+		self:RebuildMilestoneBonuses()
 		        local stats = self.Entity:GetComponent("script.PlayerStats")
 		        if stats ~= nil then stats:ApplyMaxHp() end
 	end

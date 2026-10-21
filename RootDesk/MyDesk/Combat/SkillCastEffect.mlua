@@ -144,8 +144,8 @@ script SkillCastEffect extends Component
 		            local sprite = self.Entity.SpriteRendererComponent
 		            if isvalid(sprite) then
 		                -- 서버의 Visible과 RUID 복제 순서에 의존하지 않는다.
-		                -- 공용 모델의 초록 placeholder는 어떤 스킬에서도 표시하지 않는다.
-		                sprite.Enable = sprite.SpriteRUID ~= "" and sprite.SpriteRUID ~= "7985d900fb03443899423346524299a7"
+				-- 공용 모델은 빈 이미지로 시작한다. 실제 스킬 프레임이 도착한 뒤에만 그린다.
+				sprite.Enable = sprite.SpriteRUID ~= ""
 		            end
 		            return
 		        end
