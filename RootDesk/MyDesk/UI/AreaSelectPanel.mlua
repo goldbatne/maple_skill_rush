@@ -325,7 +325,7 @@ script AreaSelectPanel extends Logic
 	method void ResetScroll()
 		        if not isvalid(self.listRoot) then return end
 		        local list = self.listRoot.ScrollLayoutGroupComponent
-		        if isvalid(list) then list:SetScrollNormalizedPosition(UITransformAxis.Vertical, 0) end
+		        if isvalid(list) then list:SetScrollNormalizedPosition(UITransformAxis.Vertical, 1) end
 	end
 
 	@ExecSpace("ClientOnly")
