@@ -269,9 +269,19 @@ script KeyConfigPanel extends Logic
 		        for i = 1, self.rowCount do
 		            local btn = self:GetRow(i)
 		            if btn ~= nil and isvalid(btn) then
+		                local waiting = i == self.capturingIndex
+		                local surface = btn.Entity.SpriteGUIRendererComponent
+		                if isvalid(surface) then
+		                    surface.Color = waiting
+		                        and Color(0.156862745, 0.552941176, 0.592156863, 1)
+						or Color(0.91372549, 0.874509804, 0.784313725, 1)
+		                end
 		                local label = btn.Entity.TextGUIRendererComponent
 		                if isvalid(label) then
 		                    label.Text = self:RowLabel(i, active)
+		                    label.FontColor = waiting
+		                        and Color(1, 1, 1, 1)
+		                        or Color(0.188235294, 0.164705882, 0.17254902, 1)
 		                end
 		            end
 		        end

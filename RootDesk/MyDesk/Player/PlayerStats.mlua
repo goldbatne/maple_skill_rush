@@ -374,7 +374,11 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_hp")
 		            if value < 1 then value = 1000 end
-		            value += self:GetInheritedCompanionStats().maxHp
+			value += self:GetInheritedCompanionStats().maxHp
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then
+				value += collection.MilestoneStrBonus * _GameData:GetBalance("str_hp_per_point")
+			end
 		            local pc = self.Entity.PlayerComponent
 		            if _GameData.RogueRunActive and isvalid(pc) then
 		                local stack = _GameData:GetRunUpgradeStack(pc.UserId, "max_hp")
@@ -734,7 +738,13 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_attack")
 		            if value < 1 then value = _GameData:GetBalance("player_base_atk") end
-		            value += self:GetInheritedCompanionStats().basicAttack
+			value += self:GetInheritedCompanionStats().basicAttack
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then
+				value += collection.MilestoneStrBonus * _GameData:GetBalance("str_atk_per_point")
+					+ collection.MilestoneDexBonus * _GameData:GetBalance("dex_atk_per_point")
+					+ collection.MilestoneLukBonus * _GameData:GetBalance("luk_atk_per_point")
+			end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then
@@ -757,7 +767,11 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_attack")
 		            if value < 1 then value = _GameData:GetBalance("player_base_atk") end
-		            value += self:GetInheritedCompanionStats().basicAttack
+			value += self:GetInheritedCompanionStats().basicAttack
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then
+				value += collection.MilestoneIntBonus * _GameData:GetBalance("int_matk_per_point")
+			end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then
@@ -772,7 +786,11 @@ script PlayerStats extends Component
 		        if self:IsRogueliteRunMode() then
 		            local value = _GameData:GetBalance("run_player_base_defense")
 		            if value < 0 then value = 0 end
-		            value += self:GetInheritedCompanionStats().defense
+			value += self:GetInheritedCompanionStats().defense
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			if collection ~= nil then
+				value += collection.MilestoneDexBonus * _GameData:GetBalance("dex_def_per_point")
+			end
 		            return value
 		        end
 		        if self:IsSimplifiedGrowth() then
@@ -793,7 +811,11 @@ script PlayerStats extends Component
 		        -- 기획서 4.8과 어긋난다.
 		        --
 		        -- 장비 LUK은 여기 포함되므로 **포획률에도 얹힌다** (기획서 4.7).
-		        if self:IsSimplifiedGrowth() then return 0 end
+		if self:IsRogueliteRunMode() then
+			local collection = self.Entity:GetComponent("script.PlayerCollection")
+			return collection ~= nil and collection.MilestoneLukBonus or 0
+		end
+		if self:IsSimplifiedGrowth() then return 0 end
 		        return self:GetStatWithoutEquip("LUK") + self:GetEquipBonus("LUK")
 		            + self:GetCollectionBonus("LUK") + self:GetPassiveItemBonus("LUK")
 	end

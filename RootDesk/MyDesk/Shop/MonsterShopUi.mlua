@@ -100,8 +100,7 @@ script MonsterShopUi extends Logic
 	method boolean IsLobby()
 		        local player = _UserService.LocalPlayer
 		        return isvalid(player) and isvalid(player.CurrentMap)
-		            and (player.CurrentMap.Name == "maptown"
-		                or (player.CurrentMap.Name == "maptutorial" and _TutorialFlow.Step == 5))
+		            and player.CurrentMap.Name == "maptown"
 		            and _GameData.RogueRunActive == false
 	end
 
@@ -120,8 +119,10 @@ script MonsterShopUi extends Logic
 		            if self.ShopOpen then
 		                local dialog = self:GetShopUi("MonsterShopWindow/Dialog")
 		                if isvalid(dialog) and _UILogic.ScreenWidth > 0 and _UILogic.ScreenHeight > 0 then
-		                    local scale = math.min(1, (_UILogic.ScreenWidth - 40) / 900,
-		                        (_UILogic.ScreenHeight - 36) / 850)
+		                    -- UI 좌표계의 높이는 1080으로 고정된다. 미리보기 픽셀 높이를
+		                    -- 다시 적용하면 자유 비율 화면에서 창이 이중 축소된다.
+		                    local visibleWidth = 1080 * _UILogic.ScreenWidth / _UILogic.ScreenHeight
+		                    local scale = math.min(1, (visibleWidth - 40) / 900)
 		                    scale = math.max(0.25, scale)
 		                    dialog.UITransformComponent.UIScale = Vector3(scale, scale, 1)
 		                end
@@ -162,10 +163,16 @@ script MonsterShopUi extends Logic
 		        local lobby = self:IsLobby()
 		        local opener = self:GetShopUi("ShopOpenButton")
 		        if isvalid(opener) then
-		            -- 상점을 포함해 어느 마을 창을 열어도 네 메뉴 버튼은 남긴다.
+		            -- 팝업이 열려 있는 동안 뒤의 로비 메뉴를 숨겨 시각적 겹침과 오입력을 막는다.
 		            local player = _UserService.LocalPlayer
 		            local available = lobby and isvalid(player) and isvalid(player.CurrentMap)
 		                and player.CurrentMap.Name == "maptown"
+		            local areaWindow = _EntityService:GetEntityByPath("/ui/AreaSelect/Window")
+		            local modalOpen = self.ShopOpen or _EquipPanel.isOpen
+		                or _GameData.RoguePartyWindowOpen or (isvalid(areaWindow) and areaWindow.Enable)
+		                or _MailPanel.Opened or _OptionsPanel.Opened
+		                or _PlayerHud.lobbyMenuVisualState == "MODAL"
+		            available = available and not modalOpen
 		            opener.Enable = available
 		            opener:SetVisible(available)
 		        end
@@ -203,7 +210,28 @@ script MonsterShopUi extends Logic
 		                            .. "  ·  " .. limit .. "  ·  "
 		                            .. priceText
 		                    end
-		                    if isvalid(buy) then buy.TextGUIRendererComponent.Text = mode end
+					if isvalid(buy) then
+						buy.TextGUIRendererComponent.Text = mode
+						local badge = buy.SpriteGUIRendererComponent
+						if isvalid(badge) then
+							-- 무료 수령 / 유료 구매 / 판매 대기를 색으로 즉시 구분한다.
+							badge.Color = product.price == 0
+								and Color(0.156862745, 0.552941176, 0.592156863, 1)
+								or (mode == "구매하기"
+									and Color(0.956862745, 0.788235294, 0.309803922, 1)
+									or Color(0.568627451, 0.545098039, 0.517647059, 1))
+							badge.Outline = true
+						badge.OutlineColor = product.price == 0
+							and Color(0.160784314, 0.141176471, 0.164705882, 1)
+							or (mode == "구매하기"
+								and Color(0.160784314, 0.141176471, 0.164705882, 1)
+								or Color(0.22745098, 0.192156863, 0.215686275, 1))
+							badge.OutlineWidth = 2
+						buy.TextGUIRendererComponent.FontColor = mode == "구매하기"
+							and Color(0.188235294, 0.164705882, 0.17254902, 1)
+							or Color(1, 0.964705882, 0.898039216, 1)
+						end
+					end
 		                end
 		            end
 		        end
@@ -213,6 +241,11 @@ script MonsterShopUi extends Logic
 		            useTicket.Enable = true
 		            useTicket.ButtonComponent.Enable = tickets > 0
 		            useTicket.TextGUIRendererComponent.Text = "코어 성장권 사용 · " .. tostring(tickets) .. "개"
+			useTicket.SpriteGUIRendererComponent.Color = tickets > 0
+				and Color(0.956862745, 0.788235294, 0.309803922, 1)
+				or Color(0.568627451, 0.545098039, 0.517647059, 1)
+		            useTicket.TextGUIRendererComponent.FontColor = tickets > 0
+				and Color(0.188235294, 0.164705882, 0.17254902, 1) or Color(1, 0.964705882, 0.898039216, 1)
 		        end
 		        local useScoreTicket = self:GetShopUi("MonsterShopWindow/Dialog/UseScoreTicketButton")
 		        if isvalid(useScoreTicket) then
@@ -220,6 +253,11 @@ script MonsterShopUi extends Logic
 		            useScoreTicket.Enable = true
 		            useScoreTicket.ButtonComponent.Enable = tickets > 0
 		            useScoreTicket.TextGUIRendererComponent.Text = "점수 성장권 사용 · " .. tostring(tickets) .. "개"
+			useScoreTicket.SpriteGUIRendererComponent.Color = tickets > 0
+				and Color(0.956862745, 0.788235294, 0.309803922, 1)
+				or Color(0.568627451, 0.545098039, 0.517647059, 1)
+		            useScoreTicket.TextGUIRendererComponent.FontColor = tickets > 0
+				and Color(0.188235294, 0.164705882, 0.17254902, 1) or Color(1, 0.964705882, 0.898039216, 1)
 		        end
 		        local status = self:GetShopUi("MonsterShopWindow/Dialog/StatusText")
 		        if isvalid(status) and isvalid(status.TextGUIRendererComponent) then

@@ -9,6 +9,7 @@ script MailPanel extends Logic
 	property boolean ShowRewardFields = false
 	property table Messages = {}
 	property integer Page = 1
+	property integer PageSize = 4
 	property string SelectedId = ""
 	property number NextBindAt = 0
 
@@ -70,13 +71,13 @@ script MailPanel extends Logic
 			self:Render()
 		end)
 		self:Connect("Window/List/Next", function()
-			self.Page = math.min(math.max(1, math.ceil(#self.Messages / 5)), self.Page + 1)
+			self.Page = math.min(math.max(1, math.ceil(#self.Messages / self.PageSize)), self.Page + 1)
 			self:Render()
 		end)
-		for i = 1, 5 do
+		for i = 1, self.PageSize do
 			local slot = i
 			self:Connect("Window/List/Row" .. tostring(i), function()
-				local message = self.Messages[(self.Page - 1) * 5 + slot]
+				local message = self.Messages[(self.Page - 1) * self.PageSize + slot]
 				if message == nil then return end
 				self.SelectedId = message.id
 				self:SetCompose(false)
@@ -119,8 +120,9 @@ script MailPanel extends Logic
 			_MonsterShopUi:SetShopOpen(false)
 			_AreaSelectPanel:Hide()
 			_GameData:SetPartyWindowOpen(false)
-			local scale = math.min(1, (_UILogic.ScreenWidth - 36) / 1120,
-				(_UILogic.ScreenHeight - 36) / 760)
+			local visibleWidth = 1080 * _UILogic.ScreenWidth
+				/ math.max(1, _UILogic.ScreenHeight)
+			local scale = math.min(1, (visibleWidth - 36) / 1120)
 			scale = math.max(0.3, scale)
 			window.UITransformComponent.UIScale = Vector3(scale, scale, 1)
 			local code = self:UI("Window/ProfileCode")
@@ -196,7 +198,7 @@ script MailPanel extends Logic
 		local ok, data = pcall(function() return _HttpService:JSONDecode(raw) end)
 		if not ok or type(data) ~= "table" or type(data.messages) ~= "table" then return end
 		self.Messages = data.messages
-		self.Page = math.min(self.Page, math.max(1, math.ceil(#self.Messages / 5)))
+		self.Page = math.min(self.Page, math.max(1, math.ceil(#self.Messages / self.PageSize)))
 		local found = false
 		for _, message in ipairs(self.Messages) do
 			if message.id == self.SelectedId then found = true break end
@@ -231,12 +233,12 @@ script MailPanel extends Logic
 			empty.Enable = #self.Messages == 0
 			empty:SetVisible(#self.Messages == 0)
 		end
-		local pages = math.max(1, math.ceil(#self.Messages / 5))
+		local pages = math.max(1, math.ceil(#self.Messages / self.PageSize))
 		local page = self:UI("Window/List/Page")
 		if isvalid(page) then page.TextGUIRendererComponent.Text = tostring(self.Page) .. " / " .. tostring(pages) end
-		for i = 1, 5 do
+		for i = 1, self.PageSize do
 			local row = self:UI("Window/List/Row" .. tostring(i))
-			local message = self.Messages[(self.Page - 1) * 5 + i]
+			local message = self.Messages[(self.Page - 1) * self.PageSize + i]
 			if isvalid(row) then
 				row.Enable = message ~= nil
 				row:SetVisible(message ~= nil)

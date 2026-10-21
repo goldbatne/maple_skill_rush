@@ -122,8 +122,11 @@ script AreaSelectPanel extends Logic
 		local player = _UserService.LocalPlayer
 		local lobby = isvalid(player) and isvalid(player.CurrentMap)
 			and player.CurrentMap.Name == "maptown" and not _GameData.RogueRunActive
-		-- 마을 메뉴는 창이 열려 있어도 모두 유지한다 (Run 메뉴와 같은 규칙).
-		local show = lobby
+		-- 팝업이 열린 동안 뒤에 남는 로비 메뉴를 감춘다.
+		local modalOpen = (isvalid(self.panel) and self.panel.Enable)
+			or _EquipPanel.isOpen or _GameData.RoguePartyWindowOpen or _MonsterShopUi.ShopOpen
+			or _MailPanel.Opened or _OptionsPanel.Opened
+		local show = lobby and not modalOpen
 		self.lobbyDungeonButton.Enable = show
 		self.lobbyDungeonButton:SetVisible(show)
 	end
@@ -255,8 +258,8 @@ script AreaSelectPanel extends Logic
 		        if isvalid(box) and _UILogic.ScreenWidth > 0 and _UILogic.ScreenHeight > 0 then
 		            -- 모험 창은 원래 중앙 위치를 유지한다.
 		            box.UITransformComponent.anchoredPosition = Vector2(0, 0)
-		            local scale = math.min(1, (_UILogic.ScreenWidth - 40) / 1160,
-		                (_UILogic.ScreenHeight - 36) / 720)
+		            local visibleWidth = 1080 * _UILogic.ScreenWidth / _UILogic.ScreenHeight
+		            local scale = math.min(1, (visibleWidth - 40) / 1160)
 		            box.UITransformComponent.UIScale = Vector3(math.max(0.25, scale), math.max(0.25, scale), 1)
 		        end
 		        self:ResetScroll()
@@ -288,7 +291,7 @@ script AreaSelectPanel extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void PaintAreaSlot(integer index)
-		-- 목록 버튼도 공통 표면을 사용하고 선택/잠금만 명도로 구분한다.
+		-- 선택한 층은 청록색, 선택 가능한 다른 층은 어두운색, 잠긴 층은 회색으로 구분한다.
 		        local slot = self:GetSlot(index)
 		        if slot == nil then return end
 		        local challengeFloor = self:GetDisplayedChallengeFloor()
@@ -298,15 +301,19 @@ script AreaSelectPanel extends Logic
 		        if isvalid(slot.TextGUIRendererComponent) then
 		            slot.TextGUIRendererComponent.Text = (self.slotNames[index]
 		                or self.slotIds[index] or "") .. "  [" .. status .. "]"
+		            slot.TextGUIRendererComponent.FontColor = index <= challengeFloor
+		                and Color(1, 0.964705882, 0.898039216, 1)
+		                or Color(0.188235294, 0.164705882, 0.17254902, 1)
 		        end
 		        if isvalid(slot.SpriteGUIRendererComponent) then
 		            slot.SpriteGUIRendererComponent.Color = active
-		                and Color(0.16, 0.43, 0.64, 1)
-		                or (index <= challengeFloor and Color(0.239215687, 0.549019635, 0.7607843, 1)
-		                    or Color(0.43, 0.50, 0.55, 1))
+		                and Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                or (index <= challengeFloor and Color(0.22745098, 0.192156863, 0.215686275, 1)
+		                    or Color(0.568627451, 0.545098039, 0.517647059, 1))
 		            slot.SpriteGUIRendererComponent.OutlineColor = active
-		                and Color(0.19, 0.61, 0.83, 1) or Color(0.77, 0.82, 0.85, 1)
-		            slot.SpriteGUIRendererComponent.OutlineWidth = 0
+		                and Color(0.956862745, 0.788235294, 0.309803922, 1)
+		                or Color(0.721568627, 0.568627451, 0.333333333, 1)
+		            slot.SpriteGUIRendererComponent.OutlineWidth = 2
 		        end
 	end
 
@@ -323,6 +330,7 @@ script AreaSelectPanel extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void ResetScroll()
+		-- 몬스터 컬렉션과 같은 BottomToTop(2)에서는 0이 첫 행이다.
 		        if not isvalid(self.listRoot) then return end
 		        local list = self.listRoot.ScrollLayoutGroupComponent
 		        if isvalid(list) then list:SetScrollNormalizedPosition(UITransformAxis.Vertical, 0) end
@@ -430,17 +438,21 @@ script AreaSelectPanel extends Logic
 		
 		        if isvalid(self.normalButton) and isvalid(self.normalButton.SpriteGUIRendererComponent) then
 		            self.normalButton.SpriteGUIRendererComponent.Color = self.selectedMode == "NORMAL"
-		                and Color(0.16, 0.43, 0.64, 1) or Color(0.239215687, 0.549019635, 0.7607843, 1)
+				and Color(0.156862745, 0.552941176, 0.592156863, 1)
+				or Color(0.22745098, 0.192156863, 0.215686275, 1)
 		            self.normalButton.SpriteGUIRendererComponent.OutlineColor = self.selectedMode == "NORMAL"
-		                and Color(0.19, 0.61, 0.83, 1) or Color(0.77, 0.82, 0.85, 1)
-		            self.normalButton.SpriteGUIRendererComponent.OutlineWidth = 0
+		                and Color(0.956862745, 0.788235294, 0.309803922, 1)
+		                or Color(0.721568627, 0.568627451, 0.333333333, 1)
+			self.normalButton.SpriteGUIRendererComponent.OutlineWidth = 2
 		        end
 		        if isvalid(self.monsterSkillButton) and isvalid(self.monsterSkillButton.SpriteGUIRendererComponent) then
 		            self.monsterSkillButton.SpriteGUIRendererComponent.Color = self.selectedMode == "MONSTER_SKILL"
-		                and Color(0.16, 0.43, 0.64, 1) or Color(0.239215687, 0.549019635, 0.7607843, 1)
+				and Color(0.156862745, 0.552941176, 0.592156863, 1)
+				or Color(0.22745098, 0.192156863, 0.215686275, 1)
 		            self.monsterSkillButton.SpriteGUIRendererComponent.OutlineColor = self.selectedMode == "MONSTER_SKILL"
-		                and Color(0.19, 0.61, 0.83, 1) or Color(0.77, 0.82, 0.85, 1)
-		            self.monsterSkillButton.SpriteGUIRendererComponent.OutlineWidth = 0
+		                and Color(0.956862745, 0.788235294, 0.309803922, 1)
+		                or Color(0.721568627, 0.568627451, 0.333333333, 1)
+			self.monsterSkillButton.SpriteGUIRendererComponent.OutlineWidth = 2
 		        end
 		
 		        local party = _GameData.RoguePartyViewId ~= ""
@@ -489,7 +501,13 @@ script AreaSelectPanel extends Logic
 		            if isvalid(self.startButton.ButtonComponent) then self.startButton.ButtonComponent.Enable = canStart end
 		            if isvalid(self.startButton.SpriteGUIRendererComponent) then
 		                self.startButton.SpriteGUIRendererComponent.Color = canStart
-		                    and Color(0.24, 0.55, 0.76, 1) or Color(0.72, 0.75, 0.78, 1)
+				and Color(0.956862745, 0.788235294, 0.309803922, 1)
+		                    or Color(0.568627451, 0.545098039, 0.517647059, 1)
+				if isvalid(self.startButton.TextGUIRendererComponent) then
+					self.startButton.TextGUIRendererComponent.FontColor = canStart
+						and Color(0.188235294, 0.164705882, 0.17254902, 1)
+						or Color(1, 0.964705882, 0.898039216, 1)
+				end
 		            end
 		        end
 	end

@@ -91,6 +91,8 @@ script PlayerHud extends Logic
 		        self:RefreshCompanionStatus(player, runActive)
 		        local attack = player.PlayerAttack
 		        self:RefreshBuffIcons("/ui/PlayerHud/Info/info_bottom/Hp", attack ~= nil and attack.ActiveBuffIcons or "")
+		        self:RefreshSystemOpeners()
+		self:RefreshChatPosition()
 		        self:RefreshLobbyMenuVisuals(player)
 		
 		        -- PlayerStats가 아직 붙기 전에도 보스바는 맵 상태만으로 그릴 수 있다.
@@ -118,8 +120,36 @@ script PlayerHud extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
+	method void RefreshSystemOpeners()
+		-- 16:9 캔버스의 잘리는 부분만 보정해 상단 아이콘을 화면에 둔다.
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+			/ math.max(1, _UILogic.ScreenHeight)
+		local inset = math.max(0, (1920 - visibleWidth) / 2)
+		local paths = {"/ui/Mail/OpenButton", "/ui/Options/OpenButton"}
+		local x = {-287, -199}
+		for i = 1, 2 do
+			local button = _EntityService:GetEntityByPath(paths[i])
+			if isvalid(button) and isvalid(button.UITransformComponent) then
+				button.UITransformComponent.anchoredPosition = Vector2(x[i] - inset, -32)
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshChatPosition()
+		-- 좌측 채팅 UI의 화면 밖 부분만 보정한다.
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+			/ math.max(1, _UILogic.ScreenHeight)
+		local inset = math.max(0, (1920 - visibleWidth) / 2)
+		local chat = _EntityService:GetEntityByPath("/ui/DefaultGroup/UIChat")
+		if isvalid(chat) and isvalid(chat.UITransformComponent) then
+			chat.UITransformComponent.anchoredPosition = Vector2(368.972534 + inset, -251.805115)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
 	method void RefreshLobbyMenuVisuals(Entity player)
-		-- 모든 로비 사각 버튼은 몬스터·상점과 동일한 기본 표면을 사용한다.
+		-- 가디언 테일즈식 어두운 메뉴 장식과 금빛 주요 행동을 유지한다.
 		        local map = player.CurrentMap
 		        local lobbyVisible = isvalid(map) and map.Name == "maptown"
 		            and not _GameData.RogueRunActive
@@ -131,16 +161,41 @@ script PlayerHud extends Logic
 		        elseif isvalid(areaWindow) and areaWindow.Enable then state = "ADVENTURE"
 		        elseif _GameData.RoguePartyWindowOpen then state = "PARTY"
 		        elseif _MonsterShopUi.ShopOpen then state = "SHOP" end
+	        -- 좁은 화면에서는 다른 시스템 창도 메인 메뉴와 겹치지 않게 한다.
+	        if state == "NONE" then
+	            local modalPaths = {
+	                "/ui/Mail/Window", "/ui/Options/Window",
+	                "/ui/Inventory/Window", "/ui/KeyConfig/Window",
+	                "/ui/StatGroup/Window", "/ui/StatGroup/DetailWindow",
+	                "/ui/TraitWindow/Window", "/ui/GoddessWindow/Root",
+	                "/ui/RebirthConfirm/Root", "/ui/WorldMap/RoomInfoPopup"
+	            }
+	            for _, path in ipairs(modalPaths) do
+	                local modal = _EntityService:GetEntityByPath(path)
+	                if isvalid(modal) and modal.Enable and modal.Visible then
+	                    state = "MODAL"
+	                    break
+	                end
+	            end
+	        end
 		        if state ~= self.lobbyMenuVisualState then
 		            self.lobbyMenuVisualState = state
-		            log("[PilotLobbyMenu] selected=" .. state)
+		            log("[LobbyMenu] selected=" .. state)
 		        end
 		        local names = {"MONSTER", "ADVENTURE", "PARTY", "SHOP"}
 		        local paths = {"/ui/EquipWindow/OpenBtn", "/ui/AreaSelect/LobbyDungeonButton",
 		            "/ui/PlayerHud/PartyMenuButton", "/ui/PlayerHud/ShopOpenButton"}
-		-- 크기와 위치는 유지하고 화살표 이미지로 덮어쓰지 않는다.
-		local positions = {Vector2(-142, -146), Vector2(-18, -210),
-		    Vector2(-248, -210), Vector2(-18, -146)}
+		-- 화면 축소 후에도 줄 사이가 구분되도록 세로 여백을 28px로 둔다.
+		local positions = {Vector2(-184, -146), Vector2(-18, -228),
+		    Vector2(-254, -228), Vector2(-18, -146)}
+		-- 네 버튼을 한 묶음으로 이동하되, 화면에서 잘리는 폭의 절반만 보정한다.
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+		    / math.max(1, _UILogic.ScreenHeight)
+		local screenInset = math.max(0, (1920 - visibleWidth) / 2)
+		for i = 1, 4 do
+		    positions[i] = Vector2(positions[i].x - screenInset, positions[i].y)
+		end
+		local narrowScreen = _UILogic.ScreenWidth / math.max(1, _UILogic.ScreenHeight) < 1.75
 		        for i = 1, 4 do
 		            local button = _EntityService:GetEntityByPath(paths[i])
 		            if isvalid(button) and isvalid(button.SpriteGUIRendererComponent) then
@@ -148,20 +203,37 @@ script PlayerHud extends Logic
 				local primary = names[i] == "PARTY" or names[i] == "ADVENTURE"
 				if isvalid(transform) then
 					transform.anchoredPosition = positions[i]
-					transform.RectSize = primary and Vector2(220, 60) or Vector2(120, 50)
+					transform.RectSize = primary
+						and Vector2(220, 64) or Vector2(150, 54)
 				end
 				local sprite = button.SpriteGUIRendererComponent
 				local label = button.TextGUIRendererComponent
 					sprite.Color = names[i] == "ADVENTURE"
-						and Color(0.3764706, 0.572549045, 0.298039228, 1)
-						or Color(0.239215687, 0.549019635, 0.7607843, 1)
-					sprite.OutlineColor = Color(0.5294118, 0.5803922, 0.619607866, 1)
-					sprite.OutlineWidth = 0
-					if isvalid(label) then label.FontColor = Color(1, 1, 1, 1) end
+						and Color(0.956862745, 0.788235294, 0.309803922, 1)
+						or Color(0.22745098, 0.192156863, 0.215686275, 1)
+					sprite.Outline = true
+					sprite.OutlineColor = names[i] == "ADVENTURE"
+						and Color(0.160784314, 0.141176471, 0.164705882, 1)
+						or Color(0.721568627, 0.568627451, 0.333333333, 1)
+					sprite.OutlineWidth = 2
+					sprite.DropShadow = true
+					sprite.DropShadowDistance = 3
+					if isvalid(label) then
+						label.FontColor = names[i] == "ADVENTURE"
+							and Color(0.188235294, 0.164705882, 0.17254902, 1)
+							or Color(1, 0.964705882, 0.898039216, 1)
+						label.FontSize = primary and 29 or 27
+					end
 				local art = button:GetChildByName("ButtonArt", false)
 				if primary and isvalid(art) and isvalid(art.SpriteGUIRendererComponent) then
 					art.Enable = false
 					art:SetVisible(false)
+				end
+				-- 태블릿처럼 좁은 화면에서는 열린 창과 메인 메뉴가 겹치지 않게 한다.
+				if narrowScreen then
+					local showMenu = state == "NONE"
+					button.Enable = showMenu
+					button:SetVisible(showMenu)
 				end
 		            end
 		        end

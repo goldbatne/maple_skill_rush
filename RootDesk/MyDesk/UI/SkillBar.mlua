@@ -37,7 +37,7 @@ script SkillBar extends Logic
 
 	property number slotRightX = -20
 
-	property number slotStepX = 98
+	property number slotStepX = 104
 
 	property number iconBoxW = 70
 
@@ -423,9 +423,10 @@ script SkillBar extends Logic
 		        -- **자식 엔티티**로 나눠 그린다 — 예전에는 이 넷을 글자 한 줄에 이어
 		        -- 붙였는데, 아이콘을 넣을 자리가 없었다.
 		        if isvalid(slot.SpriteGUIRendererComponent) then
-		            slot.SpriteGUIRendererComponent.Color = Color(0.94, 0.96, 0.97, 1)
-		            slot.SpriteGUIRendererComponent.OutlineColor = Color(0.19, 0.61, 0.83, 1)
-		            slot.SpriteGUIRendererComponent.OutlineWidth = 1
+		    slot.SpriteGUIRendererComponent.Color = Color(0.22745098, 0.192156863, 0.215686275, 1)
+		            slot.SpriteGUIRendererComponent.Outline = true
+		            slot.SpriteGUIRendererComponent.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
+		            slot.SpriteGUIRendererComponent.OutlineWidth = 2
 		        end
 		        local skill = _GameData:GetSkill(skillId)
 		        local remain = 0
@@ -470,6 +471,7 @@ script SkillBar extends Logic
 		                keyText = self:KeyNameFor(index)
 		            end
 		            keyEntity.TextGUIRendererComponent.Text = keyText
+		            keyEntity.TextGUIRendererComponent.FontColor = Color(1, 0.964705882, 0.898039216, 1)
 		        end
 		
 		        local coolEntity = slot:GetChildByName("Cool", false)
@@ -488,9 +490,10 @@ script SkillBar extends Logic
 	method void RenderEmptySlot(Entity slot, integer index)
 		        -- Mega Run의 빈 일회성 재고. 다음 서버 공급 주기를 기다린다.
 		        if isvalid(slot.SpriteGUIRendererComponent) then
-		            slot.SpriteGUIRendererComponent.Color = Color(0.94, 0.96, 0.97, 0.94)
-		            slot.SpriteGUIRendererComponent.OutlineColor = Color(0.53, 0.58, 0.61, 1)
-		            slot.SpriteGUIRendererComponent.OutlineWidth = 1
+		    slot.SpriteGUIRendererComponent.Color = Color(0.22745098, 0.192156863, 0.215686275, 0.94)
+		            slot.SpriteGUIRendererComponent.Outline = true
+		            slot.SpriteGUIRendererComponent.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
+		            slot.SpriteGUIRendererComponent.OutlineWidth = 2
 		        end
 		        local iconEntity = slot:GetChildByName("Icon", false)
 		        if iconEntity ~= nil then iconEntity:SetVisible(false) end
@@ -509,6 +512,7 @@ script SkillBar extends Logic
 		                keyText = self:KeyNameFor(index)
 		            end
 		            keyEntity.TextGUIRendererComponent.Text = keyText
+		            keyEntity.TextGUIRendererComponent.FontColor = Color(1, 0.964705882, 0.898039216, 1)
 		        end
 		
 		        local coolEntity = slot:GetChildByName("Cool", false)
@@ -520,6 +524,10 @@ script SkillBar extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void Refresh()
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+			/ math.max(1, _UILogic.ScreenHeight)
+		local slotInset = math.max(0, (1920 - visibleWidth) / 2)
+		if slotInset > 0 then slotInset += 60 end
 		        -- 서버와 같은 GetActiveSkills를 부른다. 목록 규칙이 한 곳에만 있게 하려는 것이다.
 		        ---@type PlayerSkillSlots
 		        local slots = self:GetSlots()
@@ -566,7 +574,7 @@ script SkillBar extends Logic
 					btn.Entity:SetVisible(true)
 					local rt = btn.Entity.UITransformComponent
 					if rt ~= nil then
-						local x = self.slotRightX - (5 - i) * self.slotStepX
+						local x = self.slotRightX - slotInset - (5 - i) * self.slotStepX
 						if rt.anchoredPosition.x ~= x then
 							rt.anchoredPosition = Vector2(x, rt.anchoredPosition.y)
 						end
@@ -605,7 +613,7 @@ script SkillBar extends Logic
 		                    placed = placed + 1
 		                    local rt = btn.Entity.UITransformComponent
 		                    if rt ~= nil then
-		                        local x = self.slotRightX - (filled - placed) * self.slotStepX
+		                        local x = self.slotRightX - slotInset - (filled - placed) * self.slotStepX
 		                        if rt.anchoredPosition.x ~= x then
 		                            -- 값이 같을 때도 쓰면 매 0.3초마다 레이아웃이 다시 돈다.
 		                            rt.anchoredPosition = Vector2(x, rt.anchoredPosition.y)
@@ -641,6 +649,11 @@ script SkillBar extends Logic
 		end
 		local hud = _EntityService:GetEntityByPath("/ui/SkillBar/RushHud")
 		if not isvalid(hud) then return end
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+			/ math.max(1, _UILogic.ScreenHeight)
+		local inset = math.max(0, (1920 - visibleWidth) / 2)
+		if inset > 0 then inset += 60 end
+		hud.UITransformComponent.anchoredPosition = Vector2(-20 - inset, 116)
 		local success = active and _UtilLogic.ElapsedSeconds < (self._T.rushSuccessUntil or 0)
 		hud.Enable = active and (count > 0 or success)
 		if success then hud.TextGUIRendererComponent.Text = "SKILL RUSH ×" .. tostring(self._T.rushSuccessMultiplier)

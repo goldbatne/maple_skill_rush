@@ -1092,6 +1092,39 @@ script PlayerDBManager extends Component
 	end
 
 	@ExecSpace("ServerOnly")
+	method boolean RepairTutorialSnailPayload(table payload)
+		-- 저장된 완료 계정의 누락 보상을 복구한다. 호출자는 변경된 후보만 저장 예약한다.
+		if payload.settings.tutorial_complete ~= true
+			or not _GameData:IsTameableMonster("m_snail") then return false end
+		local owned = (payload.tamed_monsters["m_snail"] or 0) > 0
+		local claimed = payload.settings.tutorial_snail_claimed == true
+		local repaired = false
+		if not owned then
+			payload.tamed_monsters["m_snail"] = 1
+			payload.monster_levels["m_snail"] = math.max(1, payload.monster_levels["m_snail"] or 0)
+			repaired = true
+		elseif not claimed then
+			local levelCap = math.max(1, math.floor(_GameData:GetBalance("monster_level_cap")))
+			payload.monster_levels["m_snail"] = math.min(levelCap,
+				math.max(1, payload.monster_levels["m_snail"] or payload.tamed_monsters["m_snail"]) + 1)
+			repaired = true
+		end
+		if payload.discovered_monsters["m_snail"] ~= 1 then
+			payload.discovered_monsters["m_snail"] = 1
+			repaired = true
+		end
+		if not claimed then
+			payload.settings.tutorial_snail_claimed = true
+			repaired = true
+		end
+		if repaired then
+			log("[TutorialReward] load_repair owned=" .. tostring(owned)
+				.. " level=" .. tostring(payload.monster_levels["m_snail"]))
+		end
+		return repaired
+	end
+
+	@ExecSpace("ServerOnly")
 	method void LoadRogueliteRecords()
 		        -- 정식 출시 저장만 읽는다. 베타/Perm 자동 이관은 새 출발을 취소하므로 금지한다.
 		        local keys = {self.KeyRogue}
@@ -1121,6 +1154,10 @@ script PlayerDBManager extends Component
 		            self.permDirty = true
 		            self.permGen += 1
 		        end
+		if self:RepairTutorialSnailPayload(payload) then
+			self.permDirty = true
+			self.permGen += 1
+		end
 		        payload.schema_version = 4
 		        self.RogueSavedPayload = payload
 		        self.RogueAreaClears = payload.area_clears
@@ -1193,6 +1230,7 @@ script PlayerDBManager extends Component
 		                and id or nil
 		        end
 		        collection.SelectedCompanionMonsterId = collection:GetEquippedCompanion(1)
+		collection:RebuildMilestoneBonuses()
 		        self.IsLoadSuccess = true
 		        self.roomRestored = true
 		        log("[PlayerDB] 로그라이트 전용 로드 완료 key=" .. self.KeyRogue .. " legacyWrites=false")

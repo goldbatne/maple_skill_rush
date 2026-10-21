@@ -19,6 +19,18 @@ script EquipPanel extends Logic
 
 	property Entity gridRoot = "c0d75b13-9346-440a-bb7e-2735a31b4779"
 
+	property Entity milestoneSummary = "cfcb3a97-0198-4b82-ae91-ba99143b9db0"
+
+	property Entity milestonePopup = "7f385218-e5b1-4d74-9c68-894ed79223e1"
+
+	property Entity milestoneClose = "b368f1db-34d3-4925-8862-2cdc96490e51"
+
+	property boolean milestoneGridsInitialized = false
+
+	property integer milestoneLevelObserved = -1
+
+	property integer milestoneEnhanceObserved = -1
+
 	property TextGUIRendererComponent lblDesc = "3bca6c15-07a1-4280-8c5e-01ea32fe6c65"
 
 	property TextGUIRendererComponent lblOwned = "e37e5106-faea-4342-924b-6e130fcbad8e"
@@ -103,6 +115,12 @@ script EquipPanel extends Logic
 		        self.handlers.close = self.btnClose.Entity:ConnectEvent(ButtonClickEvent, function()
 		            self:SetOpen(false)
 		        end)
+		self.handlers.milestoneOpen = self.milestoneSummary:ConnectEvent(ButtonClickEvent, function()
+			self:ShowMilestonePopup(true)
+		end)
+		self.handlers.milestoneClose = self.milestoneClose:ConnectEvent(ButtonClickEvent, function()
+			self:ShowMilestonePopup(false)
+		end)
 		        self.ticketConfirm = self.windowRoot:GetChildByName("TicketConfirm", true)
 		        if isvalid(self.ticketConfirm) then
 		            self.ticketConfirm.Enable = false
@@ -184,7 +202,9 @@ script EquipPanel extends Logic
 		        if width <= 0 or height <= 0 then return end
 		        -- Keep the full collection and its bottom formation strip on narrow displays.
 		        local designHeight = self:IsMonsterLobby() and 900 or 860
-		        local scale = math.min(1, (width - 40) / 1360, (height - 36) / designHeight)
+		        local visibleWidth = 1080 * width / height
+		        local scale = math.min(1, (visibleWidth - 40) / 1360,
+		            (1080 - 36) / designHeight)
 		        scale = math.max(0.25, scale)
 		        self.windowRoot.UITransformComponent.UIScale = Vector3(scale, scale, 1)
 	end
@@ -196,6 +216,12 @@ script EquipPanel extends Logic
 		        if self.handlers ~= nil then
 		            if self.handlers.open ~= nil then self.btnOpen.Entity:DisconnectEvent(ButtonClickEvent, self.handlers.open) end
 		            if self.handlers.close ~= nil then self.btnClose.Entity:DisconnectEvent(ButtonClickEvent, self.handlers.close) end
+			if self.handlers.milestoneOpen ~= nil then
+				self.milestoneSummary:DisconnectEvent(ButtonClickEvent, self.handlers.milestoneOpen)
+			end
+			if self.handlers.milestoneClose ~= nil then
+				self.milestoneClose:DisconnectEvent(ButtonClickEvent, self.handlers.milestoneClose)
+			end
 		            if isvalid(self.ticketConfirm) then
 		                local dialog = self.ticketConfirm:GetChildByName("Dialog", false)
 		                local cancel = dialog ~= nil and dialog:GetChildByName("Cancel", false) or nil
@@ -240,20 +266,25 @@ script EquipPanel extends Logic
 		            _GameData:SetPartyWindowOpen(false)
 		            _MonsterShopUi:SetShopOpen(false)
 		        end
-		        -- 마을과 Run 모두 다른 메뉴처럼 창이 열려도 버튼을 유지한다.
+		        -- 좁은 화면의 마을 팝업에서는 버튼이 창 위에 겹치지 않게 한다.
 		        self.isOpen = open
 		        -- Visible만 끄면 투명 Mask/입력 차단이 남는다. 창의 전체 트리를 비활성화한다.
 		        self.windowRoot.Enable = open
 		        self.windowRoot:SetVisible(open)
-		        -- 컬렉션 창은 원래 중앙 위치를 유지한다.
-		        self.windowRoot.UITransformComponent.anchoredPosition = Vector2(0, 0)
+		        -- 모바일 상단 시스템 아이콘과 제목줄이 닿지 않도록 컬렉션만 살짝 내린다.
+		        local inLobby = self:IsMonsterLobby()
+		        local narrowRun = not inLobby and _UILogic.ScreenHeight > 0
+		            and _UILogic.ScreenWidth / _UILogic.ScreenHeight < 1.55
+		        self.windowRoot.UITransformComponent.anchoredPosition =
+		            Vector2(narrowRun and -280 or 0, inLobby and -28 or 0)
 		        local dim = _EntityService:GetEntityByPath("/ui/EquipWindow/WindowDim")
 		        if isvalid(dim) then dim.Enable = open; dim:SetVisible(open) end
 		        if isvalid(self.ticketConfirm) then
 		            self.ticketConfirm.Enable = false
 		            self.ticketConfirm:SetVisible(false)
 		        end
-		        local showOpenButton = true
+		self:ShowMilestonePopup(false)
+		        local showOpenButton = not (open and self:IsMonsterLobby())
 		        self.btnOpen.Entity.Enable = showOpenButton
 		        self.btnOpen.Entity:SetVisible(showOpenButton)
 		        if open then
@@ -273,6 +304,163 @@ script EquipPanel extends Logic
 		            self.ticketAwaitingMonsterId = ""
 		            log("[RunSkillWindow] close input released")
 		        end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowMilestonePopup(boolean show)
+		-- 요약을 눌렀을 때만 상세를 올리고 닫거나 화면을 전환하면 입력을 비운다.
+		if not isvalid(self.milestonePopup) then return end
+		show = show and self.isOpen and self:IsMonsterLobby()
+		self.milestonePopup.Enable = show
+		self.milestonePopup:SetVisible(show)
+		local dim = self.windowRoot:GetChildByName("MilestoneDim", false)
+		if isvalid(dim) then
+			dim.Enable = show
+			dim:SetVisible(show)
+		end
+		if show then
+			self:RenderMilestoneSummary()
+			if isvalid(dim) then _UILogic:SetSiblingIndex(dim.UITransformComponent, 1000000) end
+			local inset = self.milestonePopup:GetChildByName("Inset", false)
+			if isvalid(inset) then _UILogic:SetSiblingIndex(inset.UITransformComponent, 0) end
+			_UILogic:SetSiblingIndex(self.milestoneClose.UITransformComponent, 1000001)
+			_UILogic:SetSiblingIndex(self.milestonePopup.UITransformComponent, 1000001)
+		end
+		log("[MonsterMilestoneUI] popup=" .. tostring(show))
+	end
+
+	@ExecSpace("ClientOnly")
+	method string FormatMilestoneStats(table bonuses)
+		local parts = {}
+		for _, entry in ipairs({{"STR", "힘"}, {"DEX", "덱스"}, {"INT", "지력"}, {"LUK", "행운"}}) do
+			local value = bonuses[entry[1]] or 0
+			if value > 0 then parts[#parts + 1] = entry[2] .. " +" .. tostring(value) end
+		end
+		return #parts > 0 and table.concat(parts, " · ") or "없음"
+	end
+
+	@ExecSpace("ClientOnly")
+	method string FormatMilestoneCardStats(table bonuses)
+		local first, second = {}, {}
+		for _, entry in ipairs({{"STR", "힘"}, {"DEX", "덱스"}}) do
+			local value = bonuses[entry[1]] or 0
+			if value > 0 then first[#first + 1] = entry[2] .. "+" .. tostring(value) end
+		end
+		for _, entry in ipairs({{"INT", "지력"}, {"LUK", "행운"}}) do
+			local value = bonuses[entry[1]] or 0
+			if value > 0 then second[#second + 1] = entry[2] .. "+" .. tostring(value) end
+		end
+		if #first == 0 then return table.concat(second, "  ") end
+		if #second == 0 then return table.concat(first, "  ") end
+		return table.concat(first, "  ") .. "\n" .. table.concat(second, "  ")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderMilestoneCell(any collection, string kind, integer index, Entity cell)
+		if not isvalid(cell) then return end
+		local threshold = index * 10
+		local stage = kind == "LEVEL" and collection.MilestoneLevelTotal
+			or collection.MilestoneEnhanceTotal
+		local achieved = stage >= threshold
+		local current = threshold > 0 and threshold == math.floor(stage / 10) * 10 + 10
+		local caption = cell:GetChildByName("Label", false)
+		if isvalid(caption) then
+			if threshold == 0 then
+				caption.TextGUIRendererComponent.Text = "0 시작\n보상 없음"
+			else
+				local bonus = achieved and collection:GetAggregateMilestoneTotals(kind, threshold)
+					or collection:GetAggregateMilestoneBonus(kind, threshold)
+				local values = achieved and bonus or {[bonus.stat] = bonus.value}
+				caption.TextGUIRendererComponent.Text = tostring(threshold)
+					.. (achieved and " 달성" or (current and " 진행" or " 예정"))
+					.. "\n" .. self:FormatMilestoneCardStats(values)
+			end
+		end
+		local sprite = cell.SpriteGUIRendererComponent
+		if isvalid(sprite) then
+			if achieved then sprite.Color = Color(0.97, 0.87, 0.64, 1)
+			elseif current then sprite.Color = Color(0.83, 0.94, 0.94, 1)
+			else sprite.Color = Color(0.78, 0.76, 0.73, 1) end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderMilestoneSummary()
+		-- 선택 몬스터가 아닌 전체 보유 몬스터의 달성치를 가로 보상 칸으로 표시한다.
+		if not self:IsMonsterLobby() then return end
+		local collection = self:GetCollection()
+		if collection == nil then return end
+		local monsterIds = _GameData:GetTameableMonsterIds()
+		local owned = 0
+		for _, monsterId in ipairs(monsterIds) do
+			if collection:GetTamedCount(monsterId) > 0 then owned += 1 end
+		end
+		local label = "레벨 " .. tostring(collection.MilestoneLevelTotal) .. "  ·  "
+			.. tostring(math.floor(collection.MilestoneLevelTotal / 10)) .. "단계 달성"
+			.. "     강화 " .. tostring(collection.MilestoneEnhanceTotal) .. "  ·  "
+			.. tostring(math.floor(collection.MilestoneEnhanceTotal / 10)) .. "단계 달성  ▶"
+		if isvalid(self.milestoneSummary.TextGUIRendererComponent) then
+			self.milestoneSummary.TextGUIRendererComponent.Text = label
+		end
+		if not self.milestonePopup.Enable then return end
+		local totals = self.milestonePopup:GetChildByName("Totals", false)
+		if isvalid(totals) then
+			totals.TextGUIRendererComponent.Text = "현재 보유 효과   "
+				.. self:FormatMilestoneStats({STR = collection.MilestoneStrBonus,
+					DEX = collection.MilestoneDexBonus, INT = collection.MilestoneIntBonus,
+					LUK = collection.MilestoneLukBonus})
+		end
+		local gridsReady = true
+		for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
+			local stage = kind == "LEVEL" and collection.MilestoneLevelTotal
+				or collection.MilestoneEnhanceTotal
+			local reached = math.floor(stage / 10) * 10
+			local nextStage = reached + 10
+			local name = kind == "LEVEL" and "레벨" or "강화"
+			local track = self.milestonePopup:GetChildByName(kind == "LEVEL"
+				and "LevelTrack" or "EnhanceTrack", false)
+			if isvalid(track) then
+				local header = track:GetChildByName("Header", false)
+				if isvalid(header) then
+					header.TextGUIRendererComponent.Text = name .. " 합계 " .. tostring(stage)
+						.. "    |    " .. tostring(math.floor(stage / 10)) .. "단계 달성"
+						.. "    |    다음 " .. tostring(nextStage) .. "까지 " .. tostring(nextStage - stage)
+				end
+				local gridEntity = track:GetChildByName("Grid", false)
+				local template = isvalid(gridEntity) and gridEntity:GetChildByName("Template", false) or nil
+				local grid = isvalid(gridEntity) and gridEntity.GridViewComponent or nil
+				if isvalid(grid) and isvalid(template) then
+					if not self.milestoneGridsInitialized then
+						local cap = math.floor(_GameData:GetBalance(kind == "LEVEL"
+							and "monster_level_cap" or "monster_enhance_cap"))
+						grid.ItemEntity = template
+						grid.TotalCount = math.floor(#monsterIds * cap / 10) + 1
+						local trackKind = kind
+						grid.OnRefresh = function(index, cell)
+							self:RenderMilestoneCell(collection, trackKind, index, cell)
+						end
+					end
+					local observed = kind == "LEVEL" and self.milestoneLevelObserved
+						or self.milestoneEnhanceObserved
+					if not self.milestoneGridsInitialized or observed ~= stage then
+						grid:Refresh(not self.milestoneGridsInitialized, true)
+						if not self.milestoneGridsInitialized then
+							grid:SetScrollNormalizedPosition(UITransformAxis.Horizontal, 0)
+						end
+						if kind == "LEVEL" then self.milestoneLevelObserved = stage
+						else self.milestoneEnhanceObserved = stage end
+					end
+				else
+					gridsReady = false
+				end
+			end
+		end
+		if gridsReady then self.milestoneGridsInitialized = true end
+		local hint = self.milestonePopup:GetChildByName("Hint", false)
+		if isvalid(hint) then
+			hint.TextGUIRendererComponent.Text = "보유 " .. tostring(owned) .. "/" .. tostring(#monsterIds)
+				.. "종 · 좌우로 드래그해 0부터 마지막 효과까지 확인 · 금색 달성 / 청색 다음"
+		end
 	end
 
 	@ExecSpace("ClientOnly")
@@ -403,7 +591,9 @@ script EquipPanel extends Logic
 		            local areaPanel = _EntityService:GetEntityByPath("/ui/AreaSelect/Window")
 		            local blockedByModal = _MonsterShopUi.ShopOpen or _GameData.RoguePartyWindowOpen
 		                or (isvalid(areaPanel) and areaPanel.Enable)
-		            if blockedByModal and not self.isOpen and not self:IsMonsterLobby() then
+		                or _MailPanel.Opened or _OptionsPanel.Opened
+		                or _PlayerHud.lobbyMenuVisualState == "MODAL"
+		            if blockedByModal and not self.isOpen then
 		                self.btnOpen.Entity.Enable = false
 		                self.btnOpen.Entity:SetVisible(false)
 		                return
@@ -412,13 +602,17 @@ script EquipPanel extends Logic
 		            if isvalid(self.btnOpen.Entity.TextGUIRendererComponent) then
 		                self.btnOpen.Entity.TextGUIRendererComponent.Text = lobby and "몬스터" or "스킬"
 		                self.btnOpen.Entity.TextGUIRendererComponent.FontColor = Color(1, 1, 1, 1)
+		                if lobby then self.btnOpen.Entity.TextGUIRendererComponent.FontSize = 27 end
 		            end
 		            if isvalid(self.btnOpen.Entity.SpriteGUIRendererComponent) then
-		                self.btnOpen.Entity.SpriteGUIRendererComponent.Color =
-		                    Color(0.239215687, 0.549019635, 0.7607843, 1)
-		                self.btnOpen.Entity.SpriteGUIRendererComponent.OutlineColor =
-		                    Color(0.5294118, 0.5803922, 0.619607866, 1)
-		                self.btnOpen.Entity.SpriteGUIRendererComponent.OutlineWidth = 0
+		                self.btnOpen.Entity.SpriteGUIRendererComponent.Color = lobby
+					and Color(0.22745098, 0.192156863, 0.215686275, 1)
+		                    or Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                self.btnOpen.Entity.SpriteGUIRendererComponent.Outline = true
+		                self.btnOpen.Entity.SpriteGUIRendererComponent.OutlineColor = lobby
+		                    and Color(0.721568627, 0.568627451, 0.333333333, 1)
+		                    or Color(0.160784314, 0.141176471, 0.164705882, 1)
+					self.btnOpen.Entity.SpriteGUIRendererComponent.OutlineWidth = 2
 		            end
 		            for _, edgeName in ipairs({"MasterUpperEdge", "MasterLowerEdge"}) do
 		                local edge = self.btnOpen.Entity:GetChildByName(edgeName, false)
@@ -430,10 +624,19 @@ script EquipPanel extends Logic
 		            local openTransform = self.btnOpen.Entity.UITransformComponent
 		            if isvalid(openTransform) then
 		                if lobby then
-		                    openTransform.anchoredPosition = Vector2(-142, -146)
-		                    openTransform.RectSize = Vector2(120, 50)
+                    -- PlayerHud의 좁은 화면 메뉴 배치와 같은 좌표를 사용한다.
+                    -- 주기적 갱신에서 몬스터 버튼만 원래 자리로 튀는 현상을 방지한다.
+					local visibleWidth = 1080 * _UILogic.ScreenWidth
+						/ math.max(1, _UILogic.ScreenHeight)
+					local screenInset = math.max(0, (1920 - visibleWidth) / 2)
+					openTransform.anchoredPosition = Vector2(-184 - screenInset, -146)
+					openTransform.RectSize = Vector2(150, 54)
 		                else
-		                    openTransform.anchoredPosition = Vector2(-276, -146)
+		                    local visibleWidth = 1080 * _UILogic.ScreenWidth
+		                        / math.max(1, _UILogic.ScreenHeight)
+		                    local runInset = math.max(0, (1920 - visibleWidth) / 2)
+		                    if runInset > 0 then runInset += 60 end
+		                    openTransform.anchoredPosition = Vector2(-276 - runInset, -146)
 		                    openTransform.RectSize = Vector2(120, 50)
 		                end
 		            end
@@ -723,13 +926,11 @@ script EquipPanel extends Logic
 		
 		        local sprite = tab.Entity.SpriteGUIRendererComponent
 		        if isvalid(sprite) then
-		            -- 창이 밝아지면서(T24-10) 색도 같이 뒤집혔다. 어두운 값을 그대로 두면
-		            -- 밝은 판 위에 검은 탭이 남는다 — **런타임에 칠하는 색은 `.ui`를
-		            -- 고쳐도 안 따라온다.**
+		            -- 선택 탭은 청록, 보통 탭은 창틀색으로 유지한다.
 		            if active then
-		                sprite.Color = Color(0.72, 0.83, 0.95, 1)
+		                sprite.Color = Color(0.156862745, 0.552941176, 0.592156863, 1)
 		            else
-		                sprite.Color = Color(0.88, 0.87, 0.85, 1)
+		                sprite.Color = Color(0.22745098, 0.192156863, 0.215686275, 1)
 		            end
 		        end
 	end
@@ -1462,20 +1663,20 @@ script EquipPanel extends Logic
 		        if isvalid(sprite) then
 		            if self:IsMonsterLobby() then
 		                if monsterId == self.selectedMonsterId then
-		                    sprite.Color = Color(0.92, 0.96, 0.98, 1)
-		                    sprite.OutlineColor = Color(0.19, 0.61, 0.83, 1)
-		                    sprite.OutlineWidth = 0
+				    sprite.Color = Color(0.819607843, 0.929411765, 0.929411765, 1)
+		                    sprite.OutlineColor = Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                    sprite.OutlineWidth = 2
 		                elseif available then
-		                    sprite.Color = Color(0.96, 0.97, 0.97, 1)
-		                    sprite.OutlineColor = Color(0.77, 0.82, 0.85, 1)
-		                    sprite.OutlineWidth = 0
+				    sprite.Color = Color(0.960784314, 0.933333333, 0.862745098, 1)
+		                    sprite.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
+		                    sprite.OutlineWidth = 1
 		                else
-		                    sprite.Color = Color(0.85, 0.87, 0.88, 1)
-		                    sprite.OutlineColor = Color(0.70, 0.75, 0.78, 1)
-		                    sprite.OutlineWidth = 0
+		            sprite.Color = Color(0.568627451, 0.545098039, 0.517647059, 1)
+		                    sprite.OutlineColor = Color(0.22745098, 0.192156863, 0.215686275, 1)
+		                    sprite.OutlineWidth = 1
 		                end
 		            elseif monsterId == self.selectedMonsterId then
-		                sprite.Color = Color(0.77, 0.88, 1, 1)
+		                sprite.Color = Color(0.819607843, 0.929411765, 0.929411765, 1)
 		            elseif available then
 		                sprite.Color = Color(1, 1, 1, 1)
 		            else
@@ -1540,22 +1741,20 @@ script EquipPanel extends Logic
 		        end
 		
 		        -- 칸 바탕색이 **출처와 상태**를 나른다.
-		        --   고른 칸    밝은 파랑
+		        --   고른 칸    연청록
 		        --   잠긴 스킬  거의 검정
 		        --   몬스터     청록 기운
 		        --   모험가     금빛 기운
 		        -- 지금은 탭으로 갈라 놓았지만, 색을 칸에 두면 나중에 탭을 합쳐도 그대로 읽힌다.
 		        local sprite = cell.SpriteGUIRendererComponent
 		        if isvalid(sprite) then
-		            -- 탭과 같은 이유로 밝은 쪽으로 뒤집었다 (T24-10). 네 상태가 서로
-		            -- 구분돼야 하므로 밝기가 아니라 **색조**로 가른다 —
-		            -- 고름=하늘 / 잠김=회색 / 모험가=크림 / 몬스터=연녹.
+		            -- 선택=연청록 / 잠김=회갈색 / 사용 가능=크림으로 가른다.
 		            if skillId == self.selectedSkillId then
-		                sprite.Color = Color(0.72, 0.83, 0.95, 1)
+		                sprite.Color = Color(0.819607843, 0.929411765, 0.929411765, 1)
 		            elseif slots ~= nil and slots:CanUseTier(skillId) == false then
-		                sprite.Color = Color(0.84, 0.83, 0.82, 1)
+		                sprite.Color = Color(0.568627451, 0.545098039, 0.517647059, 1)
 		            else
-		                sprite.Color = Color(0.88, 0.94, 0.91, 1)
+		                sprite.Color = Color(0.960784314, 0.933333333, 0.862745098, 1)
 		            end
 		        end
 	end
@@ -1605,10 +1804,12 @@ script EquipPanel extends Logic
 		        if isvalid(sprite) then
 		            local selected = skillId == self.selectedSkillId
 		            sprite.Color = selected
-		                and Color(0.86, 0.95, 0.98, 1) or Color(0.98, 0.99, 0.99, 1)
+		                and Color(0.819607843, 0.929411765, 0.929411765, 1)
+		                or Color(0.960784314, 0.933333333, 0.862745098, 1)
 		            sprite.OutlineColor = selected
-		                and Color(0.19, 0.61, 0.83, 1) or Color(0.77, 0.82, 0.85, 1)
-		            sprite.OutlineWidth = 0
+		                and Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                or Color(0.721568627, 0.568627451, 0.333333333, 1)
+		            sprite.OutlineWidth = selected and 2 or 1
 		        end
 	end
 
@@ -1630,6 +1831,7 @@ script EquipPanel extends Logic
 		                    end
 		                end
 		            end
+		self:RenderMilestoneSummary()
 		        end
 		        local title = self.windowRoot:GetChildByName("Title", true)
 		        if isvalid(title) and isvalid(title.TextGUIRendererComponent) then
@@ -1717,7 +1919,7 @@ script EquipPanel extends Logic
 		            if btn ~= nil then
 		                if i == 4 then
 		                    btn.Entity.UITransformComponent.anchoredPosition = self.ticketSelectionMode
-		                        and Vector2(468, -714) or Vector2(145, -620)
+		                        and Vector2(468, -714) or Vector2(200, -620)
 		                end
 		                btn.Entity:SetVisible(self.ticketSelectionMode and i == 4 or not self.ticketSelectionMode)
 		                btn.Enable = owned
@@ -1749,7 +1951,8 @@ script EquipPanel extends Logic
 		                    local sprite = btn.Entity.SpriteGUIRendererComponent
 		                    if isvalid(sprite) then
 		                        sprite.Color = selected ~= "" and selected == companionId
-		                            and Color(0.88, 0.93, 0.96, 1) or Color(0.94, 0.96, 0.96, 1)
+		                            and Color(0.819607843, 0.929411765, 0.929411765, 1)
+		                            or Color(0.960784314, 0.933333333, 0.862745098, 1)
 		                    end
 		                    local iconEntity = btn.Entity:GetChildByName("Icon", false)
 		                    if isvalid(iconEntity) then
@@ -1815,6 +2018,13 @@ script EquipPanel extends Logic
 		        -- Keep the collection layout in town; in a Run use a smaller ability view.
 		        if not isvalid(self.windowRoot) then return end
 		        self:ApplyPilotVisualMode(self:IsMonsterLobby())
+		        -- The collection detail backdrop must not protrude from the compact Run window.
+		        local heroCard = self.windowRoot:GetChildByName("HeroCard", false)
+		        if isvalid(heroCard) then
+		            local showHeroCard = self:IsMonsterLobby()
+		            heroCard.Enable = showHeroCard
+		            heroCard:SetVisible(showHeroCard)
+		        end
 		        local runFilled = not compact and not self:IsMonsterLobby()
 		        local shortRun = runFilled and self.rowSkillIds ~= nil and #self.rowSkillIds <= 5
 		        local windowSize = compact and Vector2(700, 270)
@@ -1832,11 +2042,12 @@ script EquipPanel extends Logic
 		            -- DEF 셋째 줄과 고유 능력 카드 사이에 실제 간격을 확보한다.
 		            if isvalid(detailCard) then
 		                local cardPosition = detailCard.UITransformComponent.anchoredPosition
-		                if cardPosition.x ~= 290 or cardPosition.y ~= -503 then
-		                    detailCard.UITransformComponent.anchoredPosition = Vector2(290, -503)
+		                if cardPosition.x ~= 350 or cardPosition.y ~= -503 then
+		                    detailCard.UITransformComponent.anchoredPosition = Vector2(350, -503)
 		                end
-		                if detailCard.UITransformComponent.RectSize.y ~= 104 then
-		                    detailCard.UITransformComponent.RectSize = Vector2(630, 104)
+		                if detailCard.UITransformComponent.RectSize.x ~= 590
+		                    or detailCard.UITransformComponent.RectSize.y ~= 88 then
+		                    detailCard.UITransformComponent.RectSize = Vector2(590, 88)
 		                end
 		            end
 		            if isvalid(innerFrame) and isvalid(detailCard) and isvalid(grid) then
@@ -1854,12 +2065,16 @@ script EquipPanel extends Logic
 		        end
 		        local title = self.windowRoot:GetChildByName("Title", false)
 		        if isvalid(title) then
-		            title.UITransformComponent.RectSize = compact and Vector2(660, 62)
-		                or (runFilled and Vector2(1120, 62)
-		                    or Vector2(1290, self:IsMonsterLobby() and 44 or 62))
-		            title.UITransformComponent.anchoredPosition = self:IsMonsterLobby()
-		                and Vector2(0, -18) or Vector2(0, -12)
+		            title.UITransformComponent.RectSize = Vector2((windowSize.x - 36) / 2, 56)
+		            title.UITransformComponent.anchoredPosition = Vector2(0, -14)
 		        end
+		if isvalid(self.milestoneSummary) then
+			local showMilestone = self:IsMonsterLobby()
+			self.milestoneSummary.Enable = showMilestone
+			self.milestoneSummary:SetVisible(showMilestone)
+			if not showMilestone and isvalid(self.milestonePopup)
+				and self.milestonePopup.Enable then self:ShowMilestonePopup(false) end
+		end
 		        local grid = self.windowRoot:GetChildByName("Grid", false)
 		        if isvalid(grid) then
 		            if grid.Enable == compact then
@@ -1868,7 +2083,7 @@ script EquipPanel extends Logic
 		            end
 		            local gridPosition = runFilled
 		                and Vector2(-260, -144) or (self:IsMonsterLobby()
-		                    and Vector2(collectionGridCenter, -134) or Vector2(-374, -124))
+                    and Vector2(collectionGridCenter, -152) or Vector2(-374, -124))
 		            local currentGridPosition = grid.UITransformComponent.anchoredPosition
 		            if math.abs(currentGridPosition.x - gridPosition.x) > 0.1
 		                or math.abs(currentGridPosition.y - gridPosition.y) > 0.1 then
@@ -1876,7 +2091,7 @@ script EquipPanel extends Logic
 		            end
 		            local gridSize = runFilled
 		                and Vector2(600, shortRun and 230 or 360) or (self:IsMonsterLobby()
-		                    and Vector2(574, 500) or Vector2(552, 508))
+					and Vector2(574, 364) or Vector2(552, 508))
 		            local currentGridSize = grid.UITransformComponent.RectSize
 		            if currentGridSize.x ~= gridSize.x or currentGridSize.y ~= gridSize.y then
 		                grid.UITransformComponent.RectSize = gridSize
@@ -1911,7 +2126,7 @@ script EquipPanel extends Logic
 		            end
 		            ownedLabel.UITransformComponent.anchoredPosition = runFilled
 		                and Vector2(-260, -93) or (self:IsMonsterLobby()
-		                    and Vector2(collectionHeaderX, -82) or Vector2(-374, -82))
+                    and Vector2(collectionHeaderX, -88) or Vector2(-374, -82))
 		            ownedLabel.UITransformComponent.RectSize = runFilled
 		                and Vector2(615, 42) or (self:IsMonsterLobby()
 		                    and Vector2(collectionHeaderWidth, 38) or Vector2(552, 38))
@@ -1919,7 +2134,7 @@ script EquipPanel extends Logic
 		        local slotsLabel = self.windowRoot:GetChildByName("LblSlots", false)
 		        if isvalid(slotsLabel) then
 		            slotsLabel.UITransformComponent.anchoredPosition = runFilled
-		                and Vector2(0, shortRun and -405 or -520) or Vector2(0, -706)
+                and Vector2(0, shortRun and -405 or -520) or Vector2(0, -710)
 		            slotsLabel.UITransformComponent.RectSize = runFilled
 		                and Vector2(1040, 40) or Vector2(1100, 32)
 		        end
@@ -1947,13 +2162,13 @@ script EquipPanel extends Logic
 		                    transform.RectSize = Vector2(200, 72)
 		                    btn.Entity.TextGUIRendererComponent.Padding = RectOffset(9, 9, 0, 0)
 		                elseif i <= 3 then
-		                    transform.anchoredPosition = Vector2(-330 + (i - 1) * 330, -750)
+                    transform.anchoredPosition = Vector2(-330 + (i - 1) * 330, -750)
 		                    transform.RectSize = Vector2(190, 116)
 		                elseif i == 4 then
-		                    transform.anchoredPosition = Vector2(140, -620)
+		                    transform.anchoredPosition = Vector2(200, -620)
 		                    transform.RectSize = Vector2(220, 46)
 		                else
-		                    transform.anchoredPosition = Vector2(440, -620)
+		                    transform.anchoredPosition = Vector2(500, -620)
 		                    transform.RectSize = Vector2(220, 46)
 		                end
 		            end
@@ -2044,17 +2259,17 @@ script EquipPanel extends Logic
 		        local window = self.windowRoot
 		        local frame = window.SpriteGUIRendererComponent
 		        if isvalid(frame) then
-		            frame.Color = Color(0.93, 0.95, 0.96, 1)
-		            frame.OutlineColor = Color(0.57, 0.63, 0.67, 1)
-		            frame.OutlineWidth = 0
+			    frame.Color = Color(0.960784314, 0.933333333, 0.862745098, 1)
+		            frame.OutlineColor = Color(0.160784314, 0.141176471, 0.164705882, 1)
+		            frame.OutlineWidth = 3
 		        end
 		        local title = window:GetChildByName("Title", false)
 		        if isvalid(title) then
 		            if isvalid(title.SpriteGUIRendererComponent) then
-		                title.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0)
+		                title.SpriteGUIRendererComponent.Color = Color(0.160784314, 0.141176471, 0.164705882, 1)
 		            end
 		            if isvalid(title.TextGUIRendererComponent) then
-		                title.TextGUIRendererComponent.FontColor = Color(0.19, 0.24, 0.28, 1)
+		                title.TextGUIRendererComponent.FontColor = Color(1, 1, 1, 1)
 		                title.TextGUIRendererComponent.FontSize = collectionMode and 27 or 30
 		                title.TextGUIRendererComponent.HorizontalAlignment = TextHorizontalAlignmentOption.Center
 		            end
@@ -2074,8 +2289,8 @@ script EquipPanel extends Logic
 		                layout.Type = LayoutGroupType.Grid
 		            end
 		            if isvalid(grid.SpriteGUIRendererComponent) then
-		                grid.SpriteGUIRendererComponent.Color = Color(0.89, 0.92, 0.94, 1)
-		                grid.SpriteGUIRendererComponent.OutlineColor = Color(0.62, 0.67, 0.70, 1)
+			grid.SpriteGUIRendererComponent.Color = Color(0.91372549, 0.874509804, 0.784313725, 1)
+		                grid.SpriteGUIRendererComponent.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
 		            end
 		            for i = 1, self.cellCount do
 		                local cell = grid:GetChildByName("Cell" .. tostring(i), false)
@@ -2083,9 +2298,9 @@ script EquipPanel extends Logic
 		                    cell.UITransformComponent.RectSize = collectionMode
 		                        and Vector2(111, 102) or Vector2(264, 100)
 		                    if isvalid(cell.SpriteGUIRendererComponent) then
-		                        cell.SpriteGUIRendererComponent.Color = Color(0.98, 0.99, 0.99, 1)
-		                        cell.SpriteGUIRendererComponent.OutlineColor = Color(0.72, 0.77, 0.80, 1)
-		                        cell.SpriteGUIRendererComponent.OutlineWidth = 0
+					cell.SpriteGUIRendererComponent.Color = Color(0.960784314, 0.933333333, 0.862745098, 1)
+		                        cell.SpriteGUIRendererComponent.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
+		                        cell.SpriteGUIRendererComponent.OutlineWidth = 1
 		                    end
 		                    local iconWell = cell:GetChildByName("V5IconWell", false)
 		                    if isvalid(iconWell) then
@@ -2134,20 +2349,20 @@ script EquipPanel extends Logic
 		        end
 		        local close = window:GetChildByName("BtnClose", false)
 		        if isvalid(close) and isvalid(close.SpriteGUIRendererComponent) then
-		            close.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0)
+		close.SpriteGUIRendererComponent.Color = Color(0.160784314, 0.141176471, 0.164705882, 1)
 		            local icon = close:GetChildByName("XIcon", false)
 		            if isvalid(icon) and isvalid(icon.SpriteGUIRendererComponent) then
-		                icon.SpriteGUIRendererComponent.Color = Color(0.31, 0.36, 0.39, 1)
+		                icon.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 1)
 		            end
 		        end
 		        local ownedLabel = window:GetChildByName("LblOwned", false)
 		        if isvalid(ownedLabel) and isvalid(ownedLabel.TextGUIRendererComponent) then
 		            ownedLabel.TextGUIRendererComponent.FontSize = collectionMode and 20 or 22
-		            ownedLabel.TextGUIRendererComponent.FontColor = Color(0.19, 0.24, 0.28, 1)
+		    ownedLabel.TextGUIRendererComponent.FontColor = Color(1, 1, 1, 1)
 		        end
 		        local slotsLabel = window:GetChildByName("LblSlots", false)
 		        if isvalid(slotsLabel) and isvalid(slotsLabel.TextGUIRendererComponent) then
-		            slotsLabel.TextGUIRendererComponent.FontColor = Color(0.19, 0.24, 0.28, 1)
+		    slotsLabel.TextGUIRendererComponent.FontColor = Color(1, 1, 1, 1)
 		            slotsLabel.TextGUIRendererComponent.FontSize = collectionMode and 20 or 22
 		        end
 		        local description = window:GetChildByName("LblDesc", false)
@@ -2173,8 +2388,8 @@ script EquipPanel extends Logic
 		        local skillCard = window:GetChildByName("V4SkillCard", false)
 		        if isvalid(skillCard) then
 		            if isvalid(skillCard.SpriteGUIRendererComponent) then
-		                skillCard.SpriteGUIRendererComponent.Color = Color(0.92, 0.95, 0.96, 1)
-		                skillCard.SpriteGUIRendererComponent.OutlineColor = Color(0.72, 0.79, 0.83, 1)
+				skillCard.SpriteGUIRendererComponent.Color = Color(0.91372549, 0.874509804, 0.784313725, 1)
+		                skillCard.SpriteGUIRendererComponent.OutlineColor = Color(0.721568627, 0.568627451, 0.333333333, 1)
 		            end
 		            local iconFrame = skillCard:GetChildByName("V5IconFrame", false)
 		            if isvalid(iconFrame) then
@@ -2210,13 +2425,16 @@ script EquipPanel extends Logic
 		            local button = window:GetChildByName("Slot" .. tostring(i), false)
 		            if isvalid(button) and isvalid(button.SpriteGUIRendererComponent) then
 		                button.SpriteGUIRendererComponent.Color = collectionMode
-		                    and (i == 4 and Color(0.239215687, 0.549019635, 0.7607843, 1)
-		                        or Color(0.3764706, 0.572549045, 0.298039228, 1))
-		                    or (i == 4 and Color(0.16, 0.68, 0.78, 0.96)
-		                        or Color(0.35, 0.41, 0.47, 0.96))
+				and (i == 4 and Color(0.956862745, 0.788235294, 0.309803922, 1)
+					or Color(0.156862745, 0.552941176, 0.592156863, 1))
+		                    or (i == 4 and Color(0.22745098, 0.192156863, 0.215686275, 0.96)
+		                        or Color(0.160784314, 0.141176471, 0.164705882, 0.96))
 		                button.SpriteGUIRendererComponent.OutlineColor = collectionMode
-		                    and Color(0.5294118, 0.5803922, 0.619607866, 1)
-		                    or Color(0.65, 0.69, 0.72, 1)
+		                    and Color(0.160784314, 0.141176471, 0.164705882, 1)
+		                    or Color(0.721568627, 0.568627451, 0.333333333, 1)
+		                button.TextGUIRendererComponent.FontColor = collectionMode and i == 4
+		                    and Color(0.188235294, 0.164705882, 0.17254902, 1)
+		                    or Color(1, 0.964705882, 0.898039216, 1)
 		                button.TextGUIRendererComponent.FontSize = collectionMode and 22 or 20
 		            end
 		            if isvalid(button) then
@@ -2282,10 +2500,10 @@ script EquipPanel extends Logic
 		                    local battleSlot = btn.Entity.SpriteGUIRendererComponent
 		                    if isvalid(battleSlot) then
 		                        battleSlot.Color = skill ~= nil
-		                            and Color(0.91, 0.94, 0.96, 1) or Color(0.96, 0.98, 0.99, 1)
+		                            and Color(0.91372549, 0.874509804, 0.784313725, 1) or Color(0.960784314, 0.933333333, 0.862745098, 1)
 		                        battleSlot.OutlineColor = skill ~= nil
-		                            and Color(0.43, 0.64, 0.76, 1) or Color(0.43, 0.53, 0.60, 1)
-		                        battleSlot.OutlineWidth = 0
+		                            and Color(0.721568627, 0.568627451, 0.333333333, 1) or Color(0.160784314, 0.141176471, 0.164705882, 1)
+		                        battleSlot.OutlineWidth = 1
 		                    end
 		                    if isvalid(btn.Entity.TextGUIRendererComponent) then
 		                        btn.Entity.TextGUIRendererComponent.FontColor = Color(0.19, 0.24, 0.28, 1)
