@@ -25,6 +25,12 @@ script EquipPanel extends Logic
 
 	property Entity milestoneClose = "b368f1db-34d3-4925-8862-2cdc96490e51"
 
+	property boolean milestoneGridsInitialized = false
+
+	property integer milestoneLevelObserved = -1
+
+	property integer milestoneEnhanceObserved = -1
+
 	property TextGUIRendererComponent lblDesc = "3bca6c15-07a1-4280-8c5e-01ea32fe6c65"
 
 	property TextGUIRendererComponent lblOwned = "e37e5106-faea-4342-924b-6e130fcbad8e"
@@ -317,6 +323,9 @@ script EquipPanel extends Logic
 			if isvalid(dim) then _UILogic:SetSiblingIndex(dim.UITransformComponent, 1000000) end
 			local inset = self.milestonePopup:GetChildByName("Inset", false)
 			if isvalid(inset) then _UILogic:SetSiblingIndex(inset.UITransformComponent, 0) end
+			local closeFrame = self.milestonePopup:GetChildByName("CloseFrame", false)
+			if isvalid(closeFrame) then _UILogic:SetSiblingIndex(closeFrame.UITransformComponent, 1000000) end
+			_UILogic:SetSiblingIndex(self.milestoneClose.UITransformComponent, 1000001)
 			_UILogic:SetSiblingIndex(self.milestonePopup.UITransformComponent, 1000001)
 		end
 		log("[MonsterMilestoneUI] popup=" .. tostring(show))
@@ -349,6 +358,35 @@ script EquipPanel extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
+	method void RenderMilestoneCell(any collection, string kind, integer index, Entity cell)
+		if not isvalid(cell) then return end
+		local threshold = index * 10
+		local stage = kind == "LEVEL" and collection.MilestoneLevelTotal
+			or collection.MilestoneEnhanceTotal
+		local achieved = stage >= threshold
+		local current = threshold > 0 and threshold == math.floor(stage / 10) * 10 + 10
+		local caption = cell:GetChildByName("Label", false)
+		if isvalid(caption) then
+			if threshold == 0 then
+				caption.TextGUIRendererComponent.Text = "0 시작\n보상 없음"
+			else
+				local bonus = achieved and collection:GetAggregateMilestoneTotals(kind, threshold)
+					or collection:GetAggregateMilestoneBonus(kind, threshold)
+				local values = achieved and bonus or {[bonus.stat] = bonus.value}
+				caption.TextGUIRendererComponent.Text = tostring(threshold)
+					.. (achieved and " 달성" or (current and " 진행" or " 예정"))
+					.. "\n" .. self:FormatMilestoneCardStats(values)
+			end
+		end
+		local sprite = cell.SpriteGUIRendererComponent
+		if isvalid(sprite) then
+			if achieved then sprite.Color = Color(0.97, 0.87, 0.64, 1)
+			elseif current then sprite.Color = Color(0.83, 0.94, 0.94, 1)
+			else sprite.Color = Color(0.78, 0.76, 0.73, 1) end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
 	method void RenderMilestoneSummary()
 		-- 선택 몬스터가 아닌 전체 보유 몬스터의 달성치를 가로 보상 칸으로 표시한다.
 		if not self:IsMonsterLobby() then return end
@@ -374,6 +412,7 @@ script EquipPanel extends Logic
 					DEX = collection.MilestoneDexBonus, INT = collection.MilestoneIntBonus,
 					LUK = collection.MilestoneLukBonus})
 		end
+		local gridsReady = true
 		for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
 			local stage = kind == "LEVEL" and collection.MilestoneLevelTotal
 				or collection.MilestoneEnhanceTotal
@@ -389,37 +428,40 @@ script EquipPanel extends Logic
 						.. "    |    " .. tostring(math.floor(stage / 10)) .. "단계 달성"
 						.. "    |    다음 " .. tostring(nextStage) .. "까지 " .. tostring(nextStage - stage)
 				end
-				-- 완료된 단계 1~2개와 바로 다음 단계를 같은 가로줄에서 비교한다.
-				local first = math.max(1, math.floor(stage / 10) - 1) * 10
-				for i = 1, 4 do
-					local threshold = first + (i - 1) * 10
-					local slot = track:GetChildByName("Slot" .. tostring(i), false)
-					if isvalid(slot) then
-						local achieved = stage >= threshold
-						local current = threshold == nextStage
-						local bonus = achieved and collection:GetAggregateMilestoneTotals(kind, threshold)
-							or collection:GetAggregateMilestoneBonus(kind, threshold)
-						local values = achieved and bonus or {[bonus.stat] = bonus.value}
-						local status = achieved and "달성" or (current and "진행" or "예정")
-						local caption = slot:GetChildByName("Label", false)
-						if isvalid(caption) then
-							caption.TextGUIRendererComponent.Text = tostring(threshold) .. " " .. status
-								.. "\n" .. self:FormatMilestoneCardStats(values)
-						end
-						local sprite = slot.SpriteGUIRendererComponent
-						if isvalid(sprite) then
-							if achieved then sprite.Color = Color(0.97, 0.87, 0.64, 1)
-							elseif current then sprite.Color = Color(0.83, 0.94, 0.94, 1)
-							else sprite.Color = Color(0.78, 0.76, 0.73, 1) end
+				local gridEntity = track:GetChildByName("Grid", false)
+				local template = isvalid(gridEntity) and gridEntity:GetChildByName("Template", false) or nil
+				local grid = isvalid(gridEntity) and gridEntity.GridViewComponent or nil
+				if isvalid(grid) and isvalid(template) then
+					if not self.milestoneGridsInitialized then
+						local cap = math.floor(_GameData:GetBalance(kind == "LEVEL"
+							and "monster_level_cap" or "monster_enhance_cap"))
+						grid.ItemEntity = template
+						grid.TotalCount = math.floor(#monsterIds * cap / 10) + 1
+						local trackKind = kind
+						grid.OnRefresh = function(index, cell)
+							self:RenderMilestoneCell(collection, trackKind, index, cell)
 						end
 					end
+					local observed = kind == "LEVEL" and self.milestoneLevelObserved
+						or self.milestoneEnhanceObserved
+					if not self.milestoneGridsInitialized or observed ~= stage then
+						grid:Refresh(not self.milestoneGridsInitialized, true)
+						if not self.milestoneGridsInitialized then
+							grid:SetScrollNormalizedPosition(UITransformAxis.Horizontal, 0)
+						end
+						if kind == "LEVEL" then self.milestoneLevelObserved = stage
+						else self.milestoneEnhanceObserved = stage end
+					end
+				else
+					gridsReady = false
 				end
 			end
 		end
+		if gridsReady then self.milestoneGridsInitialized = true end
 		local hint = self.milestonePopup:GetChildByName("Hint", false)
 		if isvalid(hint) then
 			hint.TextGUIRendererComponent.Text = "보유 " .. tostring(owned) .. "/" .. tostring(#monsterIds)
-				.. "종 · 미편성 몬스터 포함 · 금색은 달성, 청색은 다음 단계"
+				.. "종 · 좌우로 드래그해 0부터 마지막 효과까지 확인 · 금색 달성 / 청색 다음"
 		end
 	end
 
