@@ -293,7 +293,10 @@ script InventoryPanel extends Logic
 	@ExecSpace("ClientOnly")
 	method void Open()
 		        if _GameData.RogueRunActive then return end
-		        if isvalid(self.panel) then self.panel.Enable = true end
+		        if isvalid(self.panel) then
+		            self.panel.Enable = true
+		            self.panel:SetVisible(true)
+		        end
 		        self:Refresh()
 		        log("[Inventory창] 열림")
 	end
@@ -301,7 +304,10 @@ script InventoryPanel extends Logic
 	@ExecSpace("ClientOnly")
 	method void Hide()
 		        -- Enable로 끈다. Visible=false는 클릭이 살아 있다 (ui-hierarchy 5).
-		        if isvalid(self.panel) then self.panel.Enable = false end
+		        if isvalid(self.panel) then
+		            self.panel.Enable = false
+		            self.panel:SetVisible(false)
+		        end
 	end
 
 	@ExecSpace("ClientOnly")
@@ -356,7 +362,7 @@ script InventoryPanel extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void PaintCategory(ButtonComponent button, string label, string category, PlayerInventory inv)
-		-- 공통 파란 버튼 표면을 유지하면서 선택한 탭만 진하게 표시한다.
+		-- 선택 탭은 청록, 나머지는 어두운 메뉴 색으로 구분한다.
 		        if not isvalid(button) then return end
 		        local text = button.Entity.TextGUIRendererComponent
 		        if isvalid(text) then
@@ -365,9 +371,9 @@ script InventoryPanel extends Logic
 		        local sprite = button.Entity.SpriteGUIRendererComponent
 		        if isvalid(sprite) then
 		            if self.currentCategory == category then
-		                sprite.Color = Color(0.16, 0.43, 0.64, 1)
+				sprite.Color = Color(0.156862745, 0.552941176, 0.592156863, 1)
 		            else
-		                sprite.Color = Color(0.239215687, 0.549019635, 0.7607843, 1)
+				sprite.Color = Color(0.22745098, 0.192156863, 0.215686275, 1)
 		            end
 		        end
 	end

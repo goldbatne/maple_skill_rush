@@ -2018,9 +2018,19 @@ script GameData extends Logic
 	@ExecSpace("ClientOnly")
 	method void SetRunUpgradeWindowOpen(boolean open)
 		        local allowed = open and self.RogueRunActive and self.RogueRunComplete == false and self.RogueRunFailed == false
+		        if allowed then
+		            self:SetAbandonConfirmOpen(false)
+		            self:SetRunMenuOpen(false)
+		        end
 		        self.RogueUpgradeWindowOpen = allowed
 		        local window = _EntityService:GetEntityByPath("/ui/PlayerHud/RunUpgradeWindow")
-		        if isvalid(window) then window.Enable = allowed; window:SetVisible(allowed) end
+		        if isvalid(window) then
+		            local narrow = _UILogic.ScreenHeight > 0
+		                and _UILogic.ScreenWidth / _UILogic.ScreenHeight < 1.55
+		            window.UITransformComponent.anchoredPosition = Vector2(narrow and -280 or 0, 0)
+		            window.Enable = allowed
+		            window:SetVisible(allowed)
+		        end
 		        if allowed then self:RefreshRunUpgradeUiClient() end
 	end
 
@@ -3015,11 +3025,27 @@ script GameData extends Logic
 		        local runButton = _EntityService:GetEntityByPath("/ui/PlayerHud/RunMenuButton")
 		        local partyButton = _EntityService:GetEntityByPath("/ui/PlayerHud/PartyMenuButton")
 		        local upgradeButton = _EntityService:GetEntityByPath("/ui/PlayerHud/RunUpgradeButton")
+		        local visibleWidth = 1080 * _UILogic.ScreenWidth
+		            / math.max(1, _UILogic.ScreenHeight)
+		        local runInset = math.max(0, (1920 - visibleWidth) / 2)
+		        if runInset > 0 then runInset += 60 end
+		        if isvalid(runButton) then
+		            runButton.UITransformComponent.anchoredPosition = Vector2(-18 - runInset, -146)
+		        end
+		        if isvalid(upgradeButton) then
+		            upgradeButton.UITransformComponent.anchoredPosition = Vector2(-147 - runInset, -146)
+		        end
 		        if isvalid(runButton) then runButton.Enable = active; runButton:SetVisible(active) end
 		        if isvalid(partyButton) then
 		            local player = _UserService.LocalPlayer
 		            local showParty = not active and isvalid(player) and isvalid(player.CurrentMap)
 		                and player.CurrentMap.Name == "maptown"
+		            local areaWindow = _EntityService:GetEntityByPath("/ui/AreaSelect/Window")
+		            local modalOpen = self.RoguePartyWindowOpen or _EquipPanel.isOpen
+		                or _MonsterShopUi.ShopOpen or (isvalid(areaWindow) and areaWindow.Enable)
+		                or _MailPanel.Opened or _OptionsPanel.Opened
+		                or _PlayerHud.lobbyMenuVisualState == "MODAL"
+		            showParty = showParty and not modalOpen
 		            partyButton.Enable = showParty
 		            partyButton:SetVisible(showParty)
 		        end
@@ -3050,9 +3076,19 @@ script GameData extends Logic
 	@ExecSpace("ClientOnly")
 	method void SetAbandonConfirmOpen(boolean open)
 		        local allowed = open and self.RogueRunActive and self.RogueRunComplete == false and self.RogueRunFailed == false
+		        if allowed then self:SetRunUpgradeWindowOpen(false) end
 		        self.RogueAbandonConfirmOpen = allowed
 		        local confirm = _EntityService:GetEntityByPath("/ui/PlayerHud/AbandonConfirm")
-		        if isvalid(confirm) then confirm.Enable = allowed; confirm:SetVisible(allowed) end
+		        if isvalid(confirm) then
+		            local dialog = confirm:GetChildByName("Dialog", false)
+		            if isvalid(dialog) then
+		                local narrow = _UILogic.ScreenHeight > 0
+		                    and _UILogic.ScreenWidth / _UILogic.ScreenHeight < 1.55
+		                dialog.UITransformComponent.anchoredPosition = Vector2(narrow and -280 or 0, 0)
+		            end
+		            confirm.Enable = allowed
+		            confirm:SetVisible(allowed)
+		        end
 	end
 
 	@ExecSpace("ClientOnly")
@@ -3212,9 +3248,10 @@ script GameData extends Logic
 		        local focused = enabled and field.IsFocused
 		        local sprite = input.SpriteGUIRendererComponent
 		        if isvalid(sprite) then
-		            sprite.Color = enabled and Color(1, 1, 1, 1) or Color(0.9, 0.91, 0.92, 1)
-		            sprite.OutlineColor = focused and Color(0.45, 0.7, 0.86, 1)
-		                or Color(0.77, 0.82, 0.85, 1)
+		            sprite.Color = enabled and Color(0.960784314, 0.933333333, 0.862745098, 1)
+		                or Color(0.91372549, 0.874509804, 0.784313725, 1)
+		            sprite.OutlineColor = focused and Color(0.956862745, 0.788235294, 0.309803922, 1)
+		                or Color(0.721568627, 0.568627451, 0.333333333, 1)
 		        end
 	end
 
@@ -3225,12 +3262,27 @@ script GameData extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void RefreshPartyWindow()
+		        -- 선택 중인 탭만 청록으로 표시한다.
 		        local hasParty = self.RoguePartyViewId ~= ""
 		        local noParty = _EntityService:GetEntityByPath("/ui/PlayerHud/PartyWindow/Dialog/PartyBrowseBackdrop")
 		        local inParty = _EntityService:GetEntityByPath("/ui/PlayerHud/PartyWindow/Dialog/InPartyPanel")
 		        local channelPanel = _EntityService:GetEntityByPath("/ui/PlayerHud/PartyWindow/Dialog/ChannelBackdrop")
 		        local status = _EntityService:GetEntityByPath("/ui/PlayerHud/PartyWindow/Dialog/StatusText")
 		        local showParty = not self.RogueChannelPanelOpen
+		        local partyTab = _EntityService:GetEntityByPath(
+		            "/ui/PlayerHud/PartyWindow/Dialog/PartyTabButton")
+		        local channelTab = _EntityService:GetEntityByPath(
+		            "/ui/PlayerHud/PartyWindow/Dialog/ChannelTabButton")
+		        if isvalid(partyTab) and isvalid(partyTab.SpriteGUIRendererComponent) then
+		            partyTab.SpriteGUIRendererComponent.Color = showParty
+		                and Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                or Color(0.22745098, 0.192156863, 0.215686275, 1)
+		        end
+		        if isvalid(channelTab) and isvalid(channelTab.SpriteGUIRendererComponent) then
+		            channelTab.SpriteGUIRendererComponent.Color = not showParty
+		                and Color(0.156862745, 0.552941176, 0.592156863, 1)
+		                or Color(0.22745098, 0.192156863, 0.215686275, 1)
+		        end
 		        -- Maker는 새 패널을 비활성화하면 그 자식 UI를 다시 만들지 못할 수 있다.
 		        -- 브라우저 항목은 Dialog의 직접 자식으로 두고 개별 표시한다.
 		        local browseShown = showParty and not hasParty
@@ -3277,6 +3329,21 @@ script GameData extends Logic
 		                    end
 		                end
 		                row.TextGUIRendererComponent.Text = rowText
+				local selected = false
+				if i <= #partyRows then
+					local fields = self:SplitRogueKey(partyRows[i], "~")
+					selected = self.RogueSelectedPartyId ~= ""
+						and fields[4] == self.RogueSelectedPartyInstanceId
+						and fields[5] == self.RogueSelectedPartyId
+				end
+				if isvalid(row.SpriteGUIRendererComponent) then
+					row.SpriteGUIRendererComponent.Color = selected
+						and Color(0.156862745, 0.552941176, 0.592156863, 1)
+						or Color(0.960784314, 0.933333333, 0.862745098, 1)
+				end
+				row.TextGUIRendererComponent.FontColor = selected
+					and Color(1, 0.964705882, 0.898039216, 1)
+					or Color(0.188235294, 0.164705882, 0.17254902, 1)
 		                row.Enable = browseShown and i <= #partyRows
 		            end
 		        end
@@ -3316,6 +3383,23 @@ script GameData extends Logic
 		                    end
 		                end
 		                row.TextGUIRendererComponent.Text = rowText
+				local selected = false
+				local open = false
+				if i <= #channelRows then
+					local fields = self:SplitRogueKey(channelRows[i], "~")
+					selected = self.RogueSelectedChannelCode ~= ""
+						and fields[5] == self.RogueSelectedChannelCode
+					open = fields[6] == "1"
+				end
+				if isvalid(row.SpriteGUIRendererComponent) then
+					row.SpriteGUIRendererComponent.Color = selected
+						and Color(0.156862745, 0.552941176, 0.592156863, 1)
+						or (open and Color(0.960784314, 0.933333333, 0.862745098, 1)
+							or Color(0.568627451, 0.545098039, 0.517647059, 1))
+				end
+				row.TextGUIRendererComponent.FontColor = selected
+					and Color(1, 0.964705882, 0.898039216, 1)
+					or Color(0.188235294, 0.164705882, 0.17254902, 1)
 		                row.Enable = self.RogueChannelPanelOpen and i <= #channelRows
 		            end
 		        end
