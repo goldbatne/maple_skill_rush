@@ -14,13 +14,22 @@ script PlayerCollection extends Component
 	property SyncTable<string, integer> MonsterEnhances
 
 	@TargetUserSync
-	property integer MilestoneHpBonus = 0
+	property integer MilestoneStrBonus = 0
 
 	@TargetUserSync
-	property integer MilestoneAttackBonus = 0
+	property integer MilestoneDexBonus = 0
 
 	@TargetUserSync
-	property integer MilestoneDefenseBonus = 0
+	property integer MilestoneIntBonus = 0
+
+	@TargetUserSync
+	property integer MilestoneLukBonus = 0
+
+	@TargetUserSync
+	property integer MilestoneLevelTotal = 0
+
+	@TargetUserSync
+	property integer MilestoneEnhanceTotal = 0
 
 	@TargetUserSync
 	property integer MilestoneUnlockedCount = 0
@@ -214,37 +223,47 @@ script PlayerCollection extends Component
 		        return math.min(cap, math.max(0, math.floor(n)))
 	end
 
-	method table GetMonsterMilestoneBonus(string monsterId, string kind, integer threshold)
-		-- 종·성장 종류·10단계 식별자로 고정 추첨한다. 재접속/재선택으로 재추첨되지 않는다.
+	method table GetAggregateMilestoneBonus(string kind, integer threshold)
+		-- 몬스터 종류와 무관한 전체 성장 합계의 10단계 보상. 단계별 결과는 항상 고정이다.
 		if threshold < 10 or threshold % 10 ~= 0 then return nil end
 		if kind ~= "LEVEL" and kind ~= "ENHANCE" then return nil end
-		local key = monsterId .. ":" .. kind .. ":" .. tostring(threshold)
+		-- 단계만으로 의사 난수를 만들므로 모든 플레이어에게 같은 고정 보상표가 적용된다.
+		-- 요청한 예시의 첫 두 강화 보상은 명시적으로 보장한다.
+		if kind == "ENHANCE" and threshold == 10 then return {stat = "STR", value = 1} end
+		if kind == "ENHANCE" and threshold == 20 then return {stat = "DEX", value = 2} end
+		local key = kind .. ":" .. tostring(threshold)
 		local hash = 17
 		for i = 1, #key do hash = (hash * 31 + string.byte(key, i)) % 1000003 end
-		local index = hash % 3
-		if index == 0 then return {stat = "HP", value = kind == "LEVEL" and 15 or 25} end
-		if index == 1 then return {stat = "ATK", value = kind == "LEVEL" and 1 or 2} end
-		return {stat = "DEF", value = kind == "LEVEL" and 1 or 2}
+		local stats = {"STR", "DEX", "INT", "LUK"}
+		return {stat = stats[hash % 4 + 1], value = hash % 2 + 1}
+	end
+
+	method table GetAggregateMilestoneTotals(string kind, integer stage)
+		local totals = {STR = 0, DEX = 0, INT = 0, LUK = 0, count = 0}
+		for threshold = 10, math.max(0, math.floor(stage or 0)), 10 do
+			local bonus = self:GetAggregateMilestoneBonus(kind, threshold)
+			if bonus ~= nil then
+				totals[bonus.stat] += bonus.value
+				totals.count += 1
+			end
+		end
+		return totals
 	end
 
 	method table CalculateMilestoneBonuses(table grownMonsters)
-		-- 입력 목록만 합산하므로 저장 원장을 바꾸지 않고 경계값을 검증할 수 있다.
-		local hp, attack, defense, unlocked = 0, 0, 0, 0
+		-- 보유 몬스터 전체의 레벨과 강화를 각각 합친 뒤 10단위 경계를 판정한다.
+		local levelTotal, enhanceTotal = 0, 0
 		for _, grown in ipairs(grownMonsters) do
-			for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
-				local stage = kind == "LEVEL" and grown.level or grown.enhance
-				for threshold = 10, stage, 10 do
-					local bonus = self:GetMonsterMilestoneBonus(grown.monsterId, kind, threshold)
-					if bonus ~= nil then
-						unlocked += 1
-						if bonus.stat == "HP" then hp += bonus.value
-						elseif bonus.stat == "ATK" then attack += bonus.value
-						else defense += bonus.value end
-					end
-				end
-			end
+			levelTotal += math.max(0, math.floor(grown.level or 0))
+			enhanceTotal += math.max(0, math.floor(grown.enhance or 0))
 		end
-		return {maxHp = hp, basicAttack = attack, defense = defense, count = unlocked}
+		local level = self:GetAggregateMilestoneTotals("LEVEL", levelTotal)
+		local enhance = self:GetAggregateMilestoneTotals("ENHANCE", enhanceTotal)
+		return {STR = level.STR + enhance.STR, DEX = level.DEX + enhance.DEX,
+			INT = level.INT + enhance.INT, LUK = level.LUK + enhance.LUK,
+			levelTotal = levelTotal, enhanceTotal = enhanceTotal,
+			levelCount = level.count, enhanceCount = enhance.count,
+			count = level.count + enhance.count}
 	end
 
 	@ExecSpace("ServerOnly")
@@ -261,13 +280,17 @@ script PlayerCollection extends Component
 			end
 		end
 		local total = self:CalculateMilestoneBonuses(grownMonsters)
-		self.MilestoneHpBonus = total.maxHp
-		self.MilestoneAttackBonus = total.basicAttack
-		self.MilestoneDefenseBonus = total.defense
+		self.MilestoneStrBonus = total.STR
+		self.MilestoneDexBonus = total.DEX
+		self.MilestoneIntBonus = total.INT
+		self.MilestoneLukBonus = total.LUK
+		self.MilestoneLevelTotal = total.levelTotal
+		self.MilestoneEnhanceTotal = total.enhanceTotal
 		self.MilestoneUnlockedCount = total.count
-		log("[MonsterMilestone] unlocked=" .. tostring(total.count)
-			.. " hp=" .. tostring(total.maxHp) .. " atk=" .. tostring(total.basicAttack)
-			.. " def=" .. tostring(total.defense))
+		log("[MonsterMilestone] levelTotal=" .. tostring(total.levelTotal)
+			.. " enhanceTotal=" .. tostring(total.enhanceTotal)
+			.. " STR=" .. tostring(total.STR) .. " DEX=" .. tostring(total.DEX)
+			.. " INT=" .. tostring(total.INT) .. " LUK=" .. tostring(total.LUK))
 	end
 
 	method integer GetMonsterGrowthStepCost(integer growthStep)

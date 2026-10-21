@@ -307,16 +307,34 @@ script EquipPanel extends Logic
 		show = show and self.isOpen and self:IsMonsterLobby()
 		self.milestonePopup.Enable = show
 		self.milestonePopup:SetVisible(show)
+		local dim = self.windowRoot:GetChildByName("MilestoneDim", false)
+		if isvalid(dim) then
+			dim.Enable = show
+			dim:SetVisible(show)
+		end
 		if show then
 			self:RenderMilestoneSummary()
+			if isvalid(dim) then _UILogic:SetSiblingIndex(dim.UITransformComponent, 1000000) end
+			local inset = self.milestonePopup:GetChildByName("Inset", false)
+			if isvalid(inset) then _UILogic:SetSiblingIndex(inset.UITransformComponent, 0) end
 			_UILogic:SetSiblingIndex(self.milestonePopup.UITransformComponent, 1000001)
 		end
 		log("[MonsterMilestoneUI] popup=" .. tostring(show))
 	end
 
 	@ExecSpace("ClientOnly")
+	method string FormatMilestoneStats(table bonuses)
+		local parts = {}
+		for _, entry in ipairs({{"STR", "힘"}, {"DEX", "덱스"}, {"INT", "지력"}, {"LUK", "행운"}}) do
+			local value = bonuses[entry[1]] or 0
+			if value > 0 then parts[#parts + 1] = entry[2] .. " +" .. tostring(value) end
+		end
+		return #parts > 0 and table.concat(parts, " · ") or "없음"
+	end
+
+	@ExecSpace("ClientOnly")
 	method void RenderMilestoneSummary()
-		-- 합산 현황과 현재 선택한 몬스터의 네 가지 10단계 보상을 보여 준다.
+		-- 선택 몬스터가 아닌 전체 보유 몬스터의 레벨/강화 합계를 표시한다.
 		if not self:IsMonsterLobby() then return end
 		local collection = self:GetCollection()
 		if collection == nil then return end
@@ -325,50 +343,44 @@ script EquipPanel extends Logic
 		for _, monsterId in ipairs(monsterIds) do
 			if collection:GetTamedCount(monsterId) > 0 then owned += 1 end
 		end
-		local maxPerMonster = math.floor(_GameData:GetBalance("monster_level_cap") / 10)
-			+ math.floor(_GameData:GetBalance("monster_enhance_cap") / 10)
-		local total = #monsterIds * maxPerMonster
-		local label = "보유 " .. tostring(owned) .. "/" .. tostring(#monsterIds)
-			.. "  ·  성장 보너스 " .. tostring(collection.MilestoneUnlockedCount)
-			.. "/" .. tostring(total) .. "  ▶"
+		local label = "레벨 합계 " .. tostring(collection.MilestoneLevelTotal)
+			.. " · 강화 합계 " .. tostring(collection.MilestoneEnhanceTotal)
+			.. "  |  보유 효과 " .. tostring(collection.MilestoneUnlockedCount) .. "개 ▶"
 		if isvalid(self.milestoneSummary.TextGUIRendererComponent) then
 			self.milestoneSummary.TextGUIRendererComponent.Text = label
 		end
 		if not self.milestonePopup.Enable then return end
 		local totals = self.milestonePopup:GetChildByName("Totals", false)
 		if isvalid(totals) then
-			totals.TextGUIRendererComponent.Text = "보유 효과  HP +"
-				.. tostring(collection.MilestoneHpBonus) .. "   공격 +"
-				.. tostring(collection.MilestoneAttackBonus) .. "   방어 +"
-				.. tostring(collection.MilestoneDefenseBonus)
+			totals.TextGUIRendererComponent.Text = "현재 보유 효과   "
+				.. self:FormatMilestoneStats({STR = collection.MilestoneStrBonus,
+					DEX = collection.MilestoneDexBonus, INT = collection.MilestoneIntBonus,
+					LUK = collection.MilestoneLukBonus})
 		end
-		local selected = self.selectedMonsterId
-		local monster = selected ~= "" and _GameData:GetMonster(selected) or nil
 		local title = self.milestonePopup:GetChildByName("Selected", false)
 		if isvalid(title) then
-			title.TextGUIRendererComponent.Text = monster ~= nil
-				and (monster.name .. "  ·  Lv." .. tostring(collection:GetMonsterLevel(selected))
-					.. "  /  +" .. tostring(collection:GetMonsterEnhance(selected)))
-				or "몬스터를 선택하면 성장 보상을 확인할 수 있습니다"
+			title.TextGUIRendererComponent.Text = "보유 " .. tostring(owned) .. "/" .. tostring(#monsterIds)
+				.. "종의 성장치를 각각 합산합니다. 미편성 몬스터도 포함됩니다."
 		end
 		local rows = self.milestonePopup:GetChildByName("Rows", true)
 		if not isvalid(rows) then return end
-		if monster == nil then rows.TextGUIRendererComponent.Text = "" return end
 		local lines = {}
 		for _, kind in ipairs({"LEVEL", "ENHANCE"}) do
-			local cap = math.floor(_GameData:GetBalance(kind == "LEVEL"
-				and "monster_level_cap" or "monster_enhance_cap"))
-			local stage = kind == "LEVEL" and collection:GetMonsterLevel(selected)
-				or collection:GetMonsterEnhance(selected)
-			for threshold = 10, cap, 10 do
-				local bonus = collection:GetMonsterMilestoneBonus(selected, kind, threshold)
-				if bonus ~= nil then
-					local prefix = kind == "LEVEL" and "Lv." or "+"
-					lines[#lines + 1] = (stage >= threshold and "획득  " or "미달성  ")
-						.. prefix .. tostring(threshold) .. "  →  " .. bonus.stat
-						.. " +" .. tostring(bonus.value)
-				end
-			end
+			local stage = kind == "LEVEL" and collection.MilestoneLevelTotal
+				or collection.MilestoneEnhanceTotal
+			local reached = math.floor(stage / 10) * 10
+			local nextStage = reached + 10
+			local name = kind == "LEVEL" and "레벨" or "강화"
+			lines[#lines + 1] = "■ " .. name .. " 합계 " .. tostring(stage)
+				.. "   다음 보상 " .. tostring(nextStage) .. "까지 " .. tostring(nextStage - stage)
+			lines[#lines + 1] = reached > 0
+				and (name .. " " .. tostring(reached) .. " 달성   "
+					.. self:FormatMilestoneStats(collection:GetAggregateMilestoneTotals(kind, reached)))
+				or "아직 달성한 보상이 없습니다"
+			local nextBonus = collection:GetAggregateMilestoneBonus(kind, nextStage)
+			lines[#lines + 1] = "다음 " .. tostring(nextStage) .. " 달성 시   "
+				.. self:FormatMilestoneStats({[nextBonus.stat] = nextBonus.value})
+			if kind == "LEVEL" then lines[#lines + 1] = "" end
 		end
 		rows.TextGUIRendererComponent.Text = table.concat(lines, "\n")
 	end
