@@ -323,8 +323,6 @@ script EquipPanel extends Logic
 			if isvalid(dim) then _UILogic:SetSiblingIndex(dim.UITransformComponent, 1000000) end
 			local inset = self.milestonePopup:GetChildByName("Inset", false)
 			if isvalid(inset) then _UILogic:SetSiblingIndex(inset.UITransformComponent, 0) end
-			local closeFrame = self.milestonePopup:GetChildByName("CloseFrame", false)
-			if isvalid(closeFrame) then _UILogic:SetSiblingIndex(closeFrame.UITransformComponent, 1000000) end
 			_UILogic:SetSiblingIndex(self.milestoneClose.UITransformComponent, 1000001)
 			_UILogic:SetSiblingIndex(self.milestonePopup.UITransformComponent, 1000001)
 		end
