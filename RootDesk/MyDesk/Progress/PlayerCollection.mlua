@@ -14,16 +14,13 @@ script PlayerCollection extends Component
 	property SyncTable<string, integer> MonsterEnhances
 
 	@TargetUserSync
-	property integer MilestoneStrBonus = 0
+	property integer MilestoneHpBonus = 0
 
 	@TargetUserSync
-	property integer MilestoneDexBonus = 0
+	property integer MilestoneDefBonus = 0
 
 	@TargetUserSync
-	property integer MilestoneIntBonus = 0
-
-	@TargetUserSync
-	property integer MilestoneLukBonus = 0
+	property integer MilestoneAtkBonus = 0
 
 	@TargetUserSync
 	property integer MilestoneLevelTotal = 0
@@ -228,18 +225,22 @@ script PlayerCollection extends Component
 		if threshold < 10 or threshold % 10 ~= 0 then return nil end
 		if kind ~= "LEVEL" and kind ~= "ENHANCE" then return nil end
 		-- 단계만으로 의사 난수를 만들므로 모든 플레이어에게 같은 고정 보상표가 적용된다.
-		-- 요청한 예시의 첫 두 강화 보상은 명시적으로 보장한다.
-		if kind == "ENHANCE" and threshold == 10 then return {stat = "STR", value = 1} end
-		if kind == "ENHANCE" and threshold == 20 then return {stat = "DEX", value = 2} end
+		-- 첫 두 강화 보상은 기존 힘/덱스가 주던 HP/DEF 증가량으로 직접 치환한다.
+		if kind == "ENHANCE" and threshold == 10 then return {stat = "HP", value = 20} end
+		if kind == "ENHANCE" and threshold == 20 then return {stat = "DEF", value = 20} end
 		local key = kind .. ":" .. tostring(threshold)
 		local hash = 17
 		for i = 1, #key do hash = (hash * 31 + string.byte(key, i)) % 1000003 end
-		local stats = {"STR", "DEX", "INT", "LUK"}
-		return {stat = stats[hash % 4 + 1], value = hash % 2 + 1}
+		local stats = {"HP", "DEF", "ATK"}
+		local stat = stats[hash % 3 + 1]
+		local value = stat == "HP" and (hash % 2 + 1) * 20
+			or stat == "DEF" and (hash % 2 + 1) * 10
+			or (hash % 2 + 1) * 2
+		return {stat = stat, value = value}
 	end
 
 	method table GetAggregateMilestoneTotals(string kind, integer stage)
-		local totals = {STR = 0, DEX = 0, INT = 0, LUK = 0, count = 0}
+		local totals = {HP = 0, DEF = 0, ATK = 0, count = 0}
 		for threshold = 10, math.max(0, math.floor(stage or 0)), 10 do
 			local bonus = self:GetAggregateMilestoneBonus(kind, threshold)
 			if bonus ~= nil then
@@ -259,8 +260,8 @@ script PlayerCollection extends Component
 		end
 		local level = self:GetAggregateMilestoneTotals("LEVEL", levelTotal)
 		local enhance = self:GetAggregateMilestoneTotals("ENHANCE", enhanceTotal)
-		return {STR = level.STR + enhance.STR, DEX = level.DEX + enhance.DEX,
-			INT = level.INT + enhance.INT, LUK = level.LUK + enhance.LUK,
+		return {HP = level.HP + enhance.HP, DEF = level.DEF + enhance.DEF,
+			ATK = level.ATK + enhance.ATK,
 			levelTotal = levelTotal, enhanceTotal = enhanceTotal,
 			levelCount = level.count, enhanceCount = enhance.count,
 			count = level.count + enhance.count}
@@ -280,17 +281,18 @@ script PlayerCollection extends Component
 			end
 		end
 		local total = self:CalculateMilestoneBonuses(grownMonsters)
-		self.MilestoneStrBonus = total.STR
-		self.MilestoneDexBonus = total.DEX
-		self.MilestoneIntBonus = total.INT
-		self.MilestoneLukBonus = total.LUK
+		self.MilestoneHpBonus = total.HP
+		self.MilestoneDefBonus = total.DEF
+		self.MilestoneAtkBonus = total.ATK
 		self.MilestoneLevelTotal = total.levelTotal
 		self.MilestoneEnhanceTotal = total.enhanceTotal
 		self.MilestoneUnlockedCount = total.count
 		log("[MonsterMilestone] levelTotal=" .. tostring(total.levelTotal)
 			.. " enhanceTotal=" .. tostring(total.enhanceTotal)
-			.. " STR=" .. tostring(total.STR) .. " DEX=" .. tostring(total.DEX)
-			.. " INT=" .. tostring(total.INT) .. " LUK=" .. tostring(total.LUK))
+			.. " HP=" .. tostring(total.HP) .. " DEF=" .. tostring(total.DEF)
+			.. " ATK=" .. tostring(total.ATK))
+		log("[VRF] monster milestone HP=" .. tostring(total.HP)
+			.. " DEF=" .. tostring(total.DEF) .. " ATK=" .. tostring(total.ATK))
 	end
 
 	method integer GetMonsterGrowthStepCost(integer growthStep)
