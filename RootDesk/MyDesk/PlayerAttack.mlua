@@ -1121,9 +1121,18 @@ script PlayerAttack extends AttackComponent
 		
 		local power = _GameData:GetBalance("player_base_atk")
 		if _GameData.RogueRunActive then
-			-- 신규 Run은 레벨·장비·수집 단계와 무관한 공통 기본 공격력을 쓴다.
-			power = _GameData:GetBalance("run_player_base_attack")
-			if power < 1 then power = 35 end
+			-- Run 공통 기본값에 동행 및 성장 컬렉션 보너스를 더한다.
+			-- 마법 스킬도 동일한 ATK 보상을 받도록 해당 계열의 실제 전투 수치를 읽는다.
+			if stats ~= nil then
+				power = statName == "INT" and stats:GetTotalInt() or stats:GetTotalAtk()
+			else
+				power = _GameData:GetBalance("run_player_base_attack")
+				if power < 1 then power = 35 end
+			end
+			if self._T.milestonePowerLogged ~= true then
+				self._T.milestonePowerLogged = true
+				log("[VRF] run damage stat=" .. statName .. " power=" .. tostring(power))
+			end
 		elseif stats ~= nil then
 			if statName == "INT" then
 				power = stats:GetTotalInt()

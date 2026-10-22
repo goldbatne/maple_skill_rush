@@ -640,9 +640,9 @@ script SkillBar extends Logic
 				if isvalid(border) then
 					local eligible = count > 0 and math.floor(mask / 2 ^ (i - 1)) % 2 == 1
 					if eligible then
-						local brightness = count >= 2 and (0.9 + 0.1 * math.sin(_UtilLogic.ElapsedSeconds * 6)) or 0.82
-						border.OutlineColor = Color(brightness, brightness * 0.76, brightness * 0.25, 1)
-						border.OutlineWidth = count >= 2 and 4 or 2
+						local pulse = count >= 2 and 0.04 * math.sin(_UtilLogic.ElapsedSeconds * 6) or 0
+						border.OutlineColor = Color(0.04, 0.45 + pulse, 0.55 + pulse, 1)
+						border.OutlineWidth = count >= 2 and 4 or 3
 					end
 				end
 			end
@@ -656,8 +656,20 @@ script SkillBar extends Logic
 		hud.UITransformComponent.anchoredPosition = Vector2(-20 - inset, 116)
 		local success = active and _UtilLogic.ElapsedSeconds < (self._T.rushSuccessUntil or 0)
 		hud.Enable = active and (count > 0 or success)
-		if success then hud.TextGUIRendererComponent.Text = "SKILL RUSH ×" .. tostring(self._T.rushSuccessMultiplier)
-		elseif count > 0 then hud.TextGUIRendererComponent.Text = "RUSH " .. tostring(count) .. " / 3" end
+		local text = hud.TextGUIRendererComponent
+		if isvalid(text) then
+			text.FontColor = success and Color(0.32, 0.19, 0.06, 1)
+				or Color(0.08, 0.25, 0.29, 1)
+			text.OutlineColor = Color(1, 0.94, 0.78, 1)
+			text.OutlineWidth = 1.5
+			text.FaceDilate = 1.5
+			if success then text.Text = "SKILL RUSH ×" .. tostring(self._T.rushSuccessMultiplier)
+			elseif count > 0 then text.Text = "RUSH " .. tostring(count) .. " / 3" end
+		end
+		if count > 0 and self._T.lastRushVisibleCount ~= count then
+			log("[VRF] rush HUD count=" .. tostring(count) .. " eligibleMask=" .. tostring(mask))
+		end
+		self._T.lastRushVisibleCount = count
 	end
 
 	@ExecSpace("ClientOnly")

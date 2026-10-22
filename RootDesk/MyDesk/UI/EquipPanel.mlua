@@ -332,7 +332,7 @@ script EquipPanel extends Logic
 	@ExecSpace("ClientOnly")
 	method string FormatMilestoneStats(table bonuses)
 		local parts = {}
-		for _, entry in ipairs({{"STR", "힘"}, {"DEX", "덱스"}, {"INT", "지력"}, {"LUK", "행운"}}) do
+		for _, entry in ipairs({{"HP", "HP"}, {"DEF", "DEF"}, {"ATK", "ATK"}}) do
 			local value = bonuses[entry[1]] or 0
 			if value > 0 then parts[#parts + 1] = entry[2] .. " +" .. tostring(value) end
 		end
@@ -342,11 +342,11 @@ script EquipPanel extends Logic
 	@ExecSpace("ClientOnly")
 	method string FormatMilestoneCardStats(table bonuses)
 		local first, second = {}, {}
-		for _, entry in ipairs({{"STR", "힘"}, {"DEX", "덱스"}}) do
+		for _, entry in ipairs({{"HP", "HP"}, {"DEF", "DEF"}}) do
 			local value = bonuses[entry[1]] or 0
 			if value > 0 then first[#first + 1] = entry[2] .. "+" .. tostring(value) end
 		end
-		for _, entry in ipairs({{"INT", "지력"}, {"LUK", "행운"}}) do
+		for _, entry in ipairs({{"ATK", "ATK"}}) do
 			local value = bonuses[entry[1]] or 0
 			if value > 0 then second[#second + 1] = entry[2] .. "+" .. tostring(value) end
 		end
@@ -406,9 +406,8 @@ script EquipPanel extends Logic
 		local totals = self.milestonePopup:GetChildByName("Totals", false)
 		if isvalid(totals) then
 			totals.TextGUIRendererComponent.Text = "현재 보유 효과   "
-				.. self:FormatMilestoneStats({STR = collection.MilestoneStrBonus,
-					DEX = collection.MilestoneDexBonus, INT = collection.MilestoneIntBonus,
-					LUK = collection.MilestoneLukBonus})
+				.. self:FormatMilestoneStats({HP = collection.MilestoneHpBonus,
+					DEF = collection.MilestoneDefBonus, ATK = collection.MilestoneAtkBonus})
 		end
 		local gridsReady = true
 		for _, kind in ipairs({"LEVEL", "ENHANCE"}) do

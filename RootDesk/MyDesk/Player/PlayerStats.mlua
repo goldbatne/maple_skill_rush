@@ -377,7 +377,7 @@ script PlayerStats extends Component
 			value += self:GetInheritedCompanionStats().maxHp
 			local collection = self.Entity:GetComponent("script.PlayerCollection")
 			if collection ~= nil then
-				value += collection.MilestoneStrBonus * _GameData:GetBalance("str_hp_per_point")
+				value += collection.MilestoneHpBonus
 			end
 		            local pc = self.Entity.PlayerComponent
 		            if _GameData.RogueRunActive and isvalid(pc) then
@@ -741,9 +741,7 @@ script PlayerStats extends Component
 			value += self:GetInheritedCompanionStats().basicAttack
 			local collection = self.Entity:GetComponent("script.PlayerCollection")
 			if collection ~= nil then
-				value += collection.MilestoneStrBonus * _GameData:GetBalance("str_atk_per_point")
-					+ collection.MilestoneDexBonus * _GameData:GetBalance("dex_atk_per_point")
-					+ collection.MilestoneLukBonus * _GameData:GetBalance("luk_atk_per_point")
+				value += collection.MilestoneAtkBonus
 			end
 		            return value
 		        end
@@ -770,7 +768,7 @@ script PlayerStats extends Component
 			value += self:GetInheritedCompanionStats().basicAttack
 			local collection = self.Entity:GetComponent("script.PlayerCollection")
 			if collection ~= nil then
-				value += collection.MilestoneIntBonus * _GameData:GetBalance("int_matk_per_point")
+				value += collection.MilestoneAtkBonus
 			end
 		            return value
 		        end
@@ -789,7 +787,7 @@ script PlayerStats extends Component
 			value += self:GetInheritedCompanionStats().defense
 			local collection = self.Entity:GetComponent("script.PlayerCollection")
 			if collection ~= nil then
-				value += collection.MilestoneDexBonus * _GameData:GetBalance("dex_def_per_point")
+				value += collection.MilestoneDefBonus
 			end
 		            return value
 		        end
@@ -811,10 +809,7 @@ script PlayerStats extends Component
 		        -- 기획서 4.8과 어긋난다.
 		        --
 		        -- 장비 LUK은 여기 포함되므로 **포획률에도 얹힌다** (기획서 4.7).
-		if self:IsRogueliteRunMode() then
-			local collection = self.Entity:GetComponent("script.PlayerCollection")
-			return collection ~= nil and collection.MilestoneLukBonus or 0
-		end
+		if self:IsRogueliteRunMode() then return 0 end
 		if self:IsSimplifiedGrowth() then return 0 end
 		        return self:GetStatWithoutEquip("LUK") + self:GetEquipBonus("LUK")
 		            + self:GetCollectionBonus("LUK") + self:GetPassiveItemBonus("LUK")
