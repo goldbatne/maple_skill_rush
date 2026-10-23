@@ -248,8 +248,23 @@ script PlayerAttack extends AttackComponent
 		local damage = _CombatFormula:CalcDamage(power, monster.Def, multiplier)
 		local reduction = monster:GetDamageReduction()
 		if reduction > 0 then damage = math.max(1, math.floor(damage * (1 - reduction) + 0.5)) end
+		self:ShowRushDamageSkin(defender, damage, attacker.PlayerComponent.UserId)
 		log("[SkillRush] hit source=skill_rush target=" .. defender.Name .. " attack=" .. tostring(power) .. " multiplier=" .. tostring(multiplier) .. " damage=" .. tostring(damage))
 		return damage
+	end
+
+	method int32 GetDisplayHitCount(string attackInfo)
+		-- The owner renders a distinct skin for this hit; avoid a duplicate native number.
+		if attackInfo == "skill_rush" then return 0 end
+		return __base:GetDisplayHitCount(attackInfo)
+	end
+
+	@ExecSpace("Client")
+	method void ShowRushDamageSkin(Entity target, integer damage)
+		if not isvalid(target) or damage <= 0 then return end
+		_DamageSkinService:Play(target, "6ba67548f43f48f29eb23dafd0766383", 0,
+			{damage}, DamageSkinTweenType.Blade, false, Vector2(0, 0.6), Vector2(1.3, 1.3))
+		log("[VRF] rush damage skin=" .. tostring(damage))
 	end
 
 	@ExecSpace("ServerOnly")
