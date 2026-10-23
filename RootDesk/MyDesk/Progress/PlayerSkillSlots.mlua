@@ -771,8 +771,8 @@ script PlayerSkillSlots extends Component
 
 	@ExecSpace("ServerOnly")
 	method boolean ResolveRunSkillDropRoll(string monsterId, string skillId)
-		        -- 레거시 호환 진입점. 신규 World Drop의 최초 보장은 플레이어별 상태가 아니라
-		        -- SkillDropManager.firstSkillDropResolved 한 곳에서만 소비한다.
+		        -- 레거시 호환 진입점. 첫 스킬 보장은 이 함수가 아닌
+		        -- SkillDropManager의 RUN별 참가자 기록에서만 소비한다.
 		        if self.RogueliteRunActive == false or self:HasRunOwnedSkill(skillId) then return false end
 		        local chance = _GameData:GetBalance("run_ability_acquire_rate")
 		        if chance <= 0 then chance = 0.10 end

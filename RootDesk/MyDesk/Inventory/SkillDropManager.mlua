@@ -7,7 +7,7 @@ script SkillDropManager extends Logic
 
 	property integer nextSerial = 0
 
-	property boolean firstSkillDropResolved = false
+	property table firstSkillDropResolvedByUser = {}
 
 	property table duplicateNoticeByUser = {}
 
@@ -44,6 +44,23 @@ script SkillDropManager extends Logic
 	end
 
 	@ExecSpace("ServerOnly")
+	method boolean GrantRunSkillToParticipant(Entity player, string monsterId, string skillId, boolean guaranteed)
+		-- 실제 획득 성공 시에만 해당 참가자의 첫 스킬 보장을 소모한다.
+		if self:IsPlayerMissingSkill(player, skillId) == false then return false end
+		local slots = player:GetComponent("script.PlayerSkillSlots")
+		if slots == nil or slots:ClaimRunSkillDrop(monsterId, skillId) == false then return false end
+		local userId = player.PlayerComponent.UserId
+		_GameData:StageRogueliteDiscovery(userId, monsterId, skillId)
+		local collection = player:GetComponent("script.PlayerCollection")
+		if collection ~= nil then collection:UnlockPermanentSkill(skillId) end
+		self.firstSkillDropResolvedByUser[userId] = true
+		log("[SkillDropAuto] SUCCESS user=" .. userId .. " monster=" .. monsterId
+			.. " skill=" .. skillId .. " first=" .. tostring(guaranteed))
+		if guaranteed then log("[VRF] first_skill_granted user=" .. userId .. " skill=" .. skillId) end
+		return true
+	end
+
+	@ExecSpace("ServerOnly")
 	method boolean TrySpawnFromKill(string monsterId, Vector3 position, Entity mapEntity, table eligiblePlayers)
 		        -- 이름은 레거시 호출자와의 호환 때문에 유지한다. 신규 Run에서는
 		        -- 확률 판정 뒤 바닥 Entity를 만들지 않고 서버가 참가자에게 바로 지급한다.
@@ -75,21 +92,39 @@ script SkillDropManager extends Logic
 		                    self:NotifyRejected(player, "이미 가진 능력이라 이번에는 획득할 수 없습니다.")
 		                end
 		            end
-		            log("[SkillDropRoll] SKIP_ALL_OWNED monster=" .. monsterId .. " skill=" .. skillId
-		                .. " first_resolved=" .. tostring(self.firstSkillDropResolved))
+		            log("[SkillDropRoll] SKIP_ALL_OWNED monster=" .. monsterId .. " skill=" .. skillId)
 		            return false
 		        end
-		
-		        local guaranteed = self.firstSkillDropResolved == false
-		local chance = guaranteed and 1 or _GameData:GetBalance("run_ability_acquire_rate")
+
+		-- 첫 스킬은 RUN 전체 한 명이 아니라 아직 보장을 쓰지 않은 참가자 각자에게 지급한다.
+		local firstPending = {}
+		for _, player in ipairs(missing) do
+			if self.firstSkillDropResolvedByUser[player.PlayerComponent.UserId] ~= true then
+				firstPending[#firstPending + 1] = player
+			end
+		end
+		if #firstPending > 0 then
+			local awarded = 0
+			for _, player in ipairs(firstPending) do
+				if player.CurrentMap == mapEntity
+					and self:GrantRunSkillToParticipant(player, monsterId, skillId, true) then
+					awarded += 1
+				end
+			end
+			log("[SkillDropRoll] scope=PER_PLAYER_FIRST monster=" .. monsterId .. " skill=" .. skillId
+				.. " candidates=" .. tostring(#firstPending) .. " awarded=" .. tostring(awarded))
+			return awarded > 0
+		end
+
+		local chance = _GameData:GetBalance("run_ability_acquire_rate")
 		if chance <= 0 then chance = 0.50 end
 		if _GameData.RogueEliteKillInProgress then
 			chance = math.max(chance, _GameData:GetBalance("run_elite_skill_drop_chance"))
 		end
 		        local roll = _GameData:RogueStreamNextDouble("skill_drop:shared")
-		        local dropped = guaranteed or roll < chance
+		        local dropped = roll < chance
 		        log("[SkillDropRoll] scope=RUN_SHARED monster=" .. monsterId .. " skill=" .. skillId
-		            .. " missing=" .. tostring(#missing) .. " first=" .. tostring(guaranteed)
+		            .. " missing=" .. tostring(#missing) .. " first=false"
 		            .. " roll=" .. string.format("%.5f", roll) .. " chance=" .. string.format("%.2f", chance)
 			.. " dropped=" .. tostring(dropped)
 			.. " elite=" .. tostring(_GameData.RogueEliteKillInProgress))
@@ -98,22 +133,8 @@ script SkillDropManager extends Logic
 		        local first = _GameData:RogueStreamNextInt("skill_drop:recipient", #missing)
 		        for offset = 0, #missing - 1 do
 		            local player = missing[((first + offset - 1) % #missing) + 1]
-		            if self:IsPlayerMissingSkill(player, skillId) then
-		                local slots = player:GetComponent("script.PlayerSkillSlots")
-		                if slots ~= nil and slots:ClaimRunSkillDrop(monsterId, skillId) then
-		                    local userId = player.PlayerComponent.UserId
-		                    _GameData:StageRogueliteDiscovery(userId, monsterId, skillId)
-		                    local collection = player:GetComponent("script.PlayerCollection")
-		                    if collection ~= nil then collection:UnlockPermanentSkill(skillId) end
-		                    if guaranteed then self.firstSkillDropResolved = true end
-		                    log("[SkillDropAuto] SUCCESS user=" .. userId .. " monster=" .. monsterId
-		                        .. " skill=" .. skillId .. " candidates=" .. tostring(#missing)
-		                        .. " first=" .. tostring(guaranteed))
-		                    return true
-		                end
-		            end
+			if self:GrantRunSkillToParticipant(player, monsterId, skillId, false) then return true end
 		        end
-		        -- 지급이 실제로 성립하지 않았다면 첫 획득 보장도 유지한다.
 		        log_warning("[SkillDropAuto] NO_ELIGIBLE_RECIPIENT monster=" .. monsterId .. " skill=" .. skillId)
 		        return false
 	end
@@ -234,6 +255,7 @@ script SkillDropManager extends Logic
 		            drop.ClaimState = "AVAILABLE"
 		            return false
 		        end
+		        self.firstSkillDropResolvedByUser[userId] = true
 		        _GameData:StageRogueliteDiscovery(userId, drop.MonsterId, drop.SkillId)
 		        local collection = player:GetComponent("script.PlayerCollection")
 		        if collection ~= nil then collection:UnlockPermanentSkill(drop.SkillId) end
@@ -370,7 +392,7 @@ script SkillDropManager extends Logic
 	method void ClearAll(string reason)
 		        local old = self.activeDrops
 		        self.activeDrops = {}
-		        self.firstSkillDropResolved = false
+		        self.firstSkillDropResolvedByUser = {}
 		        self.duplicateNoticeByUser = {}
 		        for i = 1, #old do
 		            local record = old[i]
@@ -469,7 +491,7 @@ script SkillDropManager extends Logic
 		        local count = math.max(1, repeatedEligibleCount)
 		        for i = 1, count do eligible[#eligible + 1] = player end
 		        local before = #self.activeDrops
-		        local firstBefore = self.firstSkillDropResolved
+		        local firstBefore = self.firstSkillDropResolvedByUser[player.PlayerComponent.UserId] == true
 		local spawned = self:TrySpawnFromKill(monsterId,
 		    player.TransformComponent.WorldPosition + Vector3(1.2, 0, 0), player.CurrentMap, eligible)
 		        if previous ~= nil then slots.OwnedSkillPool[skillId] = previous
@@ -478,7 +500,7 @@ script SkillDropManager extends Logic
 		            .. " repeatedEligible=" .. tostring(count) .. " spawned=" .. tostring(spawned)
 		            .. " delta=" .. tostring(#self.activeDrops - before)
 		            .. " firstBefore=" .. tostring(firstBefore)
-		            .. " firstAfter=" .. tostring(self.firstSkillDropResolved))
+		            .. " firstAfter=" .. tostring(self.firstSkillDropResolvedByUser[player.PlayerComponent.UserId] == true))
 	end
 
 	@ExecSpace("Server")
@@ -527,13 +549,17 @@ script SkillDropManager extends Logic
 	@ExecSpace("ServerOnly")
 	method string DebugDescribeRecords()
 		        local rows = {}
+		        local firstResolvedCount = 0
+		        for _, resolved in pairs(self.firstSkillDropResolvedByUser) do
+		            if resolved then firstResolvedCount += 1 end
+		        end
 		        for i = 1, #self.activeDrops do
 		            local r = self.activeDrops[i]
 		            rows[#rows + 1] = tostring(r.serial) .. "~" .. r.mapId .. "~" .. r.skillId
 		                .. "~" .. r.state .. "~" .. tostring(math.max(0, r.expireAt - _UtilLogic.ServerElapsedSeconds))
 		                .. "~" .. tostring(isvalid(r.entity))
 		        end
-		        return "first=" .. tostring(self.firstSkillDropResolved) .. ";" .. table.concat(rows, "|")
+		        return "first_resolved_users=" .. tostring(firstResolvedCount) .. ";" .. table.concat(rows, "|")
 	end
 
 end
