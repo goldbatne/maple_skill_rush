@@ -732,7 +732,7 @@ script PlayerCollection extends Component
 		            if message ~= "" then message ..= " · " end
 		            message ..= "성장 코어 +" .. tostring(core)
 		        end
-		        if message ~= "" then _SkillBar:ShowMetaToast(message) end
+		        if message ~= "" then _SkillBar:ShowRunRewardToast(message) end
 	end
 
 	@ExecSpace("ServerOnly")

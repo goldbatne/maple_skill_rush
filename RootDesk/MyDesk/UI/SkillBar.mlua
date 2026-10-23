@@ -708,12 +708,22 @@ script SkillBar extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void ShowMetaToast(string message)
+		self:ShowRewardToast(message, "몬스터 컬렉션")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowRunRewardToast(string message)
+		self:ShowRewardToast(message, "RUN 획득 보상")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowRewardToast(string message, string subtitle)
 		        if isvalid(self.abilityToast) == false then return end
 		        local title = self.abilityToast:GetChildByName("Title", false)
 		        local details = self.abilityToast:GetChildByName("Details", false)
 		        local icon = self.abilityToast:GetChildByName("Icon", false)
 		        if isvalid(title) then title.TextGUIRendererComponent.Text = message end
-		        if isvalid(details) then details.TextGUIRendererComponent.Text = "몬스터 컬렉션" end
+		        if isvalid(details) then details.TextGUIRendererComponent.Text = subtitle end
 		        if isvalid(icon) then icon:SetVisible(false) end
 		        self.abilityToast.Enable = true
 		        if self.abilityToastTimer ~= nil then _TimerService:ClearTimer(self.abilityToastTimer) end
