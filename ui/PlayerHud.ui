@@ -4948,11 +4948,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": -9,
-                "y": 122
+                "x": -16.5,
+                "y": 106
               },
               "OffsetMin": {
-                "x": -199,
+                "x": -191.5,
                 "y": 34
               },
               "Pivot": {
@@ -4960,8 +4960,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 190,
-                "y": 88
+                "x": 175,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -5186,11 +5186,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": 199,
-                "y": 122
+                "x": 191.5,
+                "y": 106
               },
               "OffsetMin": {
-                "x": 9,
+                "x": 16.5,
                 "y": 34
               },
               "Pivot": {
@@ -5198,8 +5198,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 190,
-                "y": 88
+                "x": 175,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -8379,11 +8379,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": -105,
-                "y": 106
+                "x": -112,
+                "y": 90
               },
               "OffsetMin": {
-                "x": -279,
+                "x": -272,
                 "y": 18
               },
               "Pivot": {
@@ -8391,8 +8391,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 174,
-                "y": 88
+                "x": 160,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -8617,11 +8617,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": 87,
-                "y": 106
+                "x": 80,
+                "y": 90
               },
               "OffsetMin": {
-                "x": -87,
+                "x": -80,
                 "y": 18
               },
               "Pivot": {
@@ -8629,8 +8629,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 174,
-                "y": 88
+                "x": 160,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -8855,11 +8855,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": 279,
-                "y": 106
+                "x": 272,
+                "y": 90
               },
               "OffsetMin": {
-                "x": 105,
+                "x": 112,
                 "y": 18
               },
               "Pivot": {
@@ -8867,8 +8867,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 174,
-                "y": 88
+                "x": 160,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -22950,11 +22950,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": -15,
-                "y": 200
+                "x": -30,
+                "y": 184
               },
               "OffsetMin": {
-                "x": -395,
+                "x": -380,
                 "y": 112
               },
               "Pivot": {
@@ -22962,8 +22962,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 380,
-                "y": 88
+                "x": 350,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
@@ -24704,11 +24704,11 @@
               },
               "MobileOnly": false,
               "OffsetMax": {
-                "x": 395,
-                "y": 200
+                "x": 380,
+                "y": 184
               },
               "OffsetMin": {
-                "x": 15,
+                "x": 30,
                 "y": 112
               },
               "Pivot": {
@@ -24716,8 +24716,8 @@
                 "y": 0
               },
               "RectSize": {
-                "x": 380,
-                "y": 88
+                "x": 350,
+                "y": 72
               },
               "UIMode": 1,
               "UIScale": {
