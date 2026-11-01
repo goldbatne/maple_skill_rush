@@ -18,6 +18,8 @@ script TutorialFlow extends Logic
 	property number StartY = 0
 	property number NextRefreshAt = 0
 	property string LastTutorialDotState = ""
+	property boolean Completing = false
+	property boolean CompletionNoticeVisible = false
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -150,11 +152,14 @@ script TutorialFlow extends Logic
 			self.LastTutorialDotState = dotState
 			log("[VRF] tutorial dot=" .. dotState)
 		end
-		self.Guide.Enable = inTutorial
-		self.Guide:SetVisible(inTutorial)
+		local showGuide = inTutorial and not self.CompletionNoticeVisible
+		self.Guide.Enable = showGuide
+		self.Guide:SetVisible(showGuide)
 		if mapName ~= self.LastMapName then
 			self.LastMapName = mapName
 			self.PreviewFeature = ""
+			self.Completing = false
+			self.CompletionNoticeVisible = false
 			if inTutorial then
 				self.Step = 1
 				local pos = player.TransformComponent.WorldPosition
@@ -201,8 +206,13 @@ script TutorialFlow extends Logic
 		body.TextGUIRendererComponent.Text = bodies[self.Step]
 		count.TextGUIRendererComponent.Text = tostring(self.Step) .. " / 6"
 		local showPreview = self.PreviewFeature ~= ""
-		local guideHeight = showPreview and 600 or (self.Step == 4 or self.Step == 5) and 430 or 330
+		local guideHeight = showPreview and 560 or (self.Step == 4 or self.Step == 5) and 400 or 310
 		self.Guide.UITransformComponent.RectSize = Vector2(720, guideHeight)
+		local visibleWidth = 1080 * _UILogic.ScreenWidth
+			/ math.max(1, _UILogic.ScreenHeight)
+		local guideScale = math.min(1, (visibleWidth - 36) / 720)
+		guideScale = math.max(0.4, guideScale)
+		self.Guide.UITransformComponent.UIScale = Vector3(guideScale, guideScale, 1)
 		preview.Enable = showPreview
 		preview:SetVisible(showPreview)
 		if showPreview then
@@ -246,14 +256,52 @@ script TutorialFlow extends Logic
 	@ExecSpace("ClientOnly")
 	method void OnNextClicked()
 		if self.LastMapName ~= "maptutorial" or self.Step < 3
-			or not self.NextButton.Enable then return end
+			or not self.NextButton.Enable or self.Completing then return end
 		if self.Step < 6 then
 			self.PreviewFeature = ""
 			self.Step += 1
 			self:RenderGuide()
 		else
+			self.Completing = true
+			log("[VRF] tutorial complete button clicked")
 			self:RequestComplete()
 		end
+	end
+
+	@ExecSpace("Client")
+	method void NotifyCompletionResult(string title, string message, boolean completed)
+		-- 서버 저장 결과를 사용자에게 보여 준다. 실패하면 완료 버튼을 다시 누를 수 있다.
+		self.CompletionNoticeVisible = true
+		if isvalid(self.Guide) then self.Guide:SetVisible(false) end
+		_GateNotice:ShowNotice(title, message)
+		if completed then
+			-- 방 이동이 실패하더라도 버튼이 영구히 잠기지 않게 한다.
+			_TimerService:SetTimerOnce(function()
+				self.Completing = false
+				self.CompletionNoticeVisible = false
+			end, math.max(5, _GateNotice.showSeconds + 0.5))
+		else
+			self.Completing = false
+			_TimerService:SetTimerOnce(function()
+				self.CompletionNoticeVisible = false
+				if self.LastMapName == "maptutorial" and isvalid(self.Guide) then
+					self.Guide:SetVisible(true)
+				end
+			end, _GateNotice.showSeconds + 0.1)
+		end
+		log("[VRF] tutorial result notice completed=" .. tostring(completed) .. " message=" .. message)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void ReturnAfterCompletionNotice(Entity player, string userId, string title, string message)
+		-- 로비로 이동하면 UI가 다시 만들어져 배너가 사라진다. 안내를 다 읽은 뒤 이동한다.
+		self:NotifyCompletionResult(title, message, true, userId)
+		_TimerService:SetTimerOnce(function()
+			if isvalid(player) and isvalid(player.CurrentMap)
+				and player.CurrentMap.Name == "maptutorial" then
+				self:ReturnToLobby(player, userId)
+			end
+		end, 3)
 	end
 
 	@ExecSpace("Client")
@@ -290,17 +338,28 @@ script TutorialFlow extends Logic
 	@ExecSpace("Server")
 	method void RequestComplete()
 		-- 완료 기록보다 실제 해금 원장을 우선하여 누락 보상을 복구하고 기존 성장은 보존한다.
+		log("[VRF] tutorial complete request user=" .. tostring(senderUserId))
 		local player = _UserService:GetUserEntityByUserId(senderUserId)
 		if not isvalid(player) or not isvalid(player.CurrentMap)
-			or player.CurrentMap.Name ~= "maptutorial" then return end
+			or player.CurrentMap.Name ~= "maptutorial" then
+			self:NotifyCompletionResult("완료할 수 없음", "연습장 상태를 다시 확인해 주세요.", false, senderUserId)
+			return
+		end
 		local db = player:GetComponent("script.PlayerDBManager")
-		if db == nil or not db.IsLoadSuccess then return end
+		if db == nil or not db.IsLoadSuccess then
+			self:NotifyCompletionResult("완료할 수 없음", "저장 데이터가 준비되지 않았습니다. 잠시 후 다시 눌러 주세요.", false, senderUserId)
+			return
+		end
 		local collection = player:GetComponent("script.PlayerCollection")
-		if collection == nil or not _GameData:IsTameableMonster("m_snail") then return end
+		if collection == nil or not _GameData:IsTameableMonster("m_snail") then
+			self:NotifyCompletionResult("완료할 수 없음", "달팽이 보상 정보를 불러오지 못했습니다.", false, senderUserId)
+			return
+		end
 		local alreadyClaimed = db.RogueSettings.tutorial_snail_claimed == true
 		local alreadyOwned = collection:GetTamedCount("m_snail") > 0
 		local levelCap = math.max(1, math.floor(_GameData:GetBalance("monster_level_cap")))
-		local snailLevel = math.max(1, collection:GetMonsterLevel("m_snail"))
+		local oldSnailLevel = math.max(1, collection:GetMonsterLevel("m_snail"))
+		local snailLevel = oldSnailLevel
 		if alreadyOwned and not alreadyClaimed then
 			snailLevel = math.min(levelCap, snailLevel + 1)
 		end
@@ -309,18 +368,25 @@ script TutorialFlow extends Logic
 			or collection.RogueDiscoveredMonsters["m_snail"] ~= 1
 		if alreadyClaimed and db.RogueSettings.tutorial_complete == true and not needsRepair then
 			log("[TutorialReward] replay user=" .. senderUserId .. " snail_granted=false")
-			self:ReturnToLobby(player, senderUserId)
+			self:ReturnAfterCompletionNotice(player, senderUserId,
+				"튜토리얼 완료", "달팽이 보상은 이미 받았습니다.")
 			return
 		end
 		local candidate = db:PrepareRogueEconomyPayload()
-		if candidate == nil then return end
+		if candidate == nil then
+			self:NotifyCompletionResult("완료할 수 없음", "보상 저장을 준비하지 못했습니다. 다시 눌러 주세요.", false, senderUserId)
+			return
+		end
 		candidate.settings.tutorial_complete = true
 		local grantSnail = not alreadyOwned
 		candidate.settings.tutorial_snail_claimed = true
 		candidate.tamed_monsters["m_snail"] = math.max(1, collection:GetTamedCount("m_snail"))
 		candidate.monster_levels["m_snail"] = snailLevel
 		candidate.discovered_monsters["m_snail"] = 1
-		if not db:CommitRogueEconomyPayload(candidate, "튜토리얼 완료") then return end
+		if not db:CommitRogueEconomyPayload(candidate, "튜토리얼 완료") then
+			self:NotifyCompletionResult("완료할 수 없음", "보상을 저장하지 못했습니다. 다시 눌러 주세요.", false, senderUserId)
+			return
+		end
 		db.RogueSettings.tutorial_complete = true
 		db.TutorialComplete = true
 		db.RogueSettings.tutorial_snail_claimed = true
@@ -332,7 +398,18 @@ script TutorialFlow extends Logic
 			.. " snail_granted=" .. tostring(grantSnail)
 			.. " already_owned=" .. tostring(alreadyOwned)
 			.. " level=" .. tostring(collection:GetMonsterLevel("m_snail")))
-		self:ReturnToLobby(player, senderUserId)
+		local rewardMessage = "튜토리얼을 완료했습니다. 달팽이를 획득했습니다."
+		if not grantSnail and alreadyOwned and not alreadyClaimed then
+			if snailLevel > oldSnailLevel then
+				rewardMessage = "튜토리얼을 완료했습니다. 달팽이 Lv."
+					.. tostring(oldSnailLevel) .. " → Lv." .. tostring(snailLevel) .. "로 성장했습니다."
+			else
+				rewardMessage = "튜토리얼을 완료했습니다. 달팽이는 이미 최대 레벨입니다."
+			end
+		elseif not grantSnail then
+			rewardMessage = "튜토리얼을 완료하고 달팽이 기록을 복구했습니다."
+		end
+		self:ReturnAfterCompletionNotice(player, senderUserId, "튜토리얼 보상", rewardMessage)
 	end
 
 	@ExecSpace("Server")
