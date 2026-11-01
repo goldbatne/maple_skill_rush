@@ -5145,7 +5145,7 @@ script GameData extends Logic
 		                end
 		            end
 		        end
-		        -- 최초 보장/50% 자동 획득은 SkillDropManager의 Run 단위 원장에서 한 번만 판정한다.
+		        -- 최초 보장은 참가자별로, 이후 확률은 처치당 한 번 SkillDropManager에서 판정한다.
 		        -- 이 목록은 막타자가 아니라 해당 처치 위치 반경의 실제 참여자를 뜻한다.
 		        if isvalid(dropMap) and #eligiblePlayers > 0 then
 		            _SkillDropManager:TrySpawnFromKill(monsterId, deathPosition, dropMap, eligiblePlayers)

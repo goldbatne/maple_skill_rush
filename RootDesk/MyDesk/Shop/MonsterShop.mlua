@@ -214,6 +214,7 @@ script MonsterShop extends Logic
 		        end
 		        log("[MonsterShop] 지급 완료 user=" .. userId .. " product=" .. productId
 		            .. " purchase=" .. purchaseId)
+		        if product.price == 0 then _MonsterShopUi:PushFreeStatus(userId) end
 		        local rewardMessage = product.name .. " ×" .. tostring(product.amount)
 		        if product.rewardType == "GROWTH_ESSENCE" then
 		            rewardMessage = "성장 점수 " .. tostring(product.amount) .. "개를 획득했습니다."

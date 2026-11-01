@@ -18,6 +18,9 @@ script PlayerDBManager extends Component
 	@TargetUserSync
 	property boolean IsLoadSuccess = false
 
+	@TargetUserSync
+	property boolean TutorialComplete = false
+
 	property boolean permDirty = false
 
 	property boolean runDirty = false
@@ -85,6 +88,8 @@ script PlayerDBManager extends Component
 		            log_error("[PlayerDB] 로드 실패 — 이 세션은 저장하지 않는다 (세이브 보호)")
 		            return
 		        end
+		        self.TutorialComplete = self.RogueSettings.tutorial_complete == true
+		        log("[VRF] tutorial completion loaded=" .. tostring(self.TutorialComplete))
 		
 		        -- 진행 로깅의 세션 카운터를 연다 (작업지시서 T8). 로드가 끝난 뒤에 여는
 		        -- 이유: 로드 실패 세션은 어차피 저장도 로깅도 의미가 없다.
