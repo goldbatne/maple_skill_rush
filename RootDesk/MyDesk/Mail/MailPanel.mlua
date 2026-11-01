@@ -12,6 +12,9 @@ script MailPanel extends Logic
 	property integer PageSize = 4
 	property string SelectedId = ""
 	property number NextBindAt = 0
+	property number NextExpiryCheckAt = 0
+	property number NextInboxPollAt = 0
+	property string LastMailDotState = ""
 
 	@ExecSpace("ClientOnly")
 	method Entity UI(string path)
@@ -50,6 +53,10 @@ script MailPanel extends Logic
 		if not isvalid(self:UI("OpenButton")) or not isvalid(self:UI("Window"))
 			or not isvalid(self:UI("Window/Detail")) then return end
 		_OptionsPanel:BuildHeaderIcon(self:UI("OpenButton"), "mail")
+		_OptionsPanel:BuildRedDot(self:UI("OpenButton/RedDot"))
+		for i = 1, self.PageSize do
+			_OptionsPanel:BuildRedDot(self:UI("Window/List/Row" .. tostring(i) .. "/RedDot"))
+		end
 		self:Connect("OpenButton", function() self:SetOpen(not self.Opened) end)
 		self:Connect("Window/Close", function() self:SetOpen(false) end)
 		self:Connect("Window/Refresh", function() _MailService:RequestInbox() end)
@@ -96,6 +103,17 @@ script MailPanel extends Logic
 			local map = isvalid(player) and player.CurrentMap or nil
 			local opener = self:UI("OpenButton")
 			if isvalid(opener) then opener.Enable = not (isvalid(map) and map.Name == "maptutorial") end
+			local db = isvalid(player) and player:GetComponent("script.PlayerDBManager") or nil
+			if not self.Opened and db ~= nil and db.IsLoadSuccess
+				and _UtilLogic.ElapsedSeconds >= self.NextInboxPollAt then
+				-- 접속 직후와 대기 중에도 미수령 보상을 확인한다. 저장소 요청은 2분 간격으로 제한한다.
+				self.NextInboxPollAt = _UtilLogic.ElapsedSeconds + 120
+				_MailService:RequestInbox()
+			end
+			if _UtilLogic.ElapsedSeconds >= self.NextExpiryCheckAt then
+				self.NextExpiryCheckAt = _UtilLogic.ElapsedSeconds + 1
+				if self:RemoveExpiredMessages() then self:Render() end
+			end
 			return
 		end
 		if self.Bound or _UtilLogic.ElapsedSeconds < self.NextBindAt then return end
@@ -198,6 +216,7 @@ script MailPanel extends Logic
 		local ok, data = pcall(function() return _HttpService:JSONDecode(raw) end)
 		if not ok or type(data) ~= "table" or type(data.messages) ~= "table" then return end
 		self.Messages = data.messages
+		self:RemoveExpiredMessages()
 		self.Page = math.min(self.Page, math.max(1, math.ceil(#self.Messages / self.PageSize)))
 		local found = false
 		for _, message in ipairs(self.Messages) do
@@ -205,6 +224,64 @@ script MailPanel extends Logic
 		end
 		if not found then self.SelectedId = "" end
 		self:Render()
+	end
+
+	@ExecSpace("ClientOnly")
+	method boolean HasClaimableReward(any message)
+		-- 읽지 않은 일반 편지는 수령 대상이 아니다. 첨부 보상이 남은 우편만 알린다.
+		if message == nil or message.claimed then return false end
+		return (tonumber(message.core) or 0) > 0
+			or (tonumber(message.score) or 0) > 0
+			or (tonumber(message.core_ticket) or 0) > 0
+			or (tonumber(message.score_ticket) or 0) > 0
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshRewardDots()
+		local pending = false
+		for _, message in ipairs(self.Messages) do
+			if self:HasClaimableReward(message) then pending = true break end
+		end
+		local openerDot = self:UI("OpenButton/RedDot")
+		if isvalid(openerDot) then openerDot.Enable = pending end
+		for i = 1, self.PageSize do
+			local rowDot = self:UI("Window/List/Row" .. tostring(i) .. "/RedDot")
+			local message = self.Messages[(self.Page - 1) * self.PageSize + i]
+			if isvalid(rowDot) then rowDot.Enable = self:HasClaimableReward(message) end
+		end
+		local state = pending and "pending" or "clear"
+		if self.LastMailDotState ~= state then
+			self.LastMailDotState = state
+			log("[VRF] mail reward dot=" .. state)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method boolean RemoveExpiredMessages()
+		-- 표시 중인 우편도 만료 시각이 되면 즉시 목록에서 제외한다.
+		local now = DateTime.UtcNow.Elapsed
+		local active = {}
+		for _, message in ipairs(self.Messages) do
+			if type(message.expires_at) ~= "number" or now < message.expires_at then
+				active[#active + 1] = message
+			end
+		end
+		if #active == #self.Messages then return false end
+		self.Messages = active
+		self.Page = math.min(self.Page, math.max(1, math.ceil(#active / self.PageSize)))
+		for _, message in ipairs(active) do
+			if message.id == self.SelectedId then return true end
+		end
+		self.SelectedId = ""
+		return true
+	end
+
+	@ExecSpace("ClientOnly")
+	method string FormatExpiry(integer utcMilliseconds)
+		-- 저장된 UTC 밀리초를 한국 시간의 수령 마감 시각으로 표시한다.
+		local korea = DateTime(utcMilliseconds + 9 * 60 * 60 * 1000)
+		return string.format("%02d/%02d %02d:%02d", korea.Month, korea.Day,
+			korea.Hour, korea.Minute)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -226,8 +303,58 @@ script MailPanel extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
+	method integer RenderRewardItems(any message)
+		local kinds = {
+			{path = "Core", amount = message ~= nil and message.core or 0},
+			{path = "Score", amount = message ~= nil and message.score or 0},
+			{path = "CoreTicket", amount = message ~= nil and message.core_ticket or 0},
+			{path = "ScoreTicket", amount = message ~= nil and message.score_ticket or 0},
+		}
+		local count = 0
+		local total = 0
+		for _, item in ipairs(kinds) do
+			if type(item.amount) == "number" and item.amount > 0 then
+				count += 1
+				total += item.amount
+			end
+		end
+		local heading = self:UI("Window/Detail/Reward")
+		if isvalid(heading) then
+			heading.TextGUIRendererComponent.Text = count > 0 and "첨부 보상" or ""
+		end
+		local area = self:UI("Window/Detail/RewardItems")
+		if isvalid(area) then area.Enable = count > 0 area:SetVisible(count > 0) end
+		local width = count * 108 + math.max(0, count - 1) * 12
+		local startX = (535 - width) / 2
+		local visibleIndex = 0
+		for _, item in ipairs(kinds) do
+			local slot = self:UI("Window/Detail/RewardItems/" .. item.path)
+			if isvalid(slot) then
+				local show = type(item.amount) == "number" and item.amount > 0
+				slot.Enable = show
+				slot:SetVisible(show)
+				if show then
+					visibleIndex += 1
+					slot.UITransformComponent.anchoredPosition = Vector2(
+						startX + (visibleIndex - 1) * 120, 0)
+					local quantity = self:UI("Window/Detail/RewardItems/" .. item.path .. "/CountBadge/Count")
+					if isvalid(quantity) then
+						quantity.TextGUIRendererComponent.Text = "×" .. tostring(item.amount)
+					end
+				end
+			end
+		end
+		if message ~= nil then
+			log("[VRF] mail reward items id=" .. message.id .. " shown=" .. tostring(count)
+				.. " total=" .. tostring(total))
+		end
+		return total
+	end
+
+	@ExecSpace("ClientOnly")
 	method void Render()
 		if not self.Bound then return end
+		self:RefreshRewardDots()
 		local empty = self:UI("Window/List/Empty")
 		if isvalid(empty) then
 			empty.Enable = #self.Messages == 0
@@ -245,8 +372,10 @@ script MailPanel extends Logic
 				if message ~= nil then
 					local tag = message.kind == "player" and "편지" or "운영"
 					local marker = message.claimed and " ✓" or ""
+					local expiry = type(message.expires_at) == "number"
+						and " · 만료 " .. self:FormatExpiry(message.expires_at) or ""
 					row.TextGUIRendererComponent.Text = "[" .. tag .. "] " .. message.subject
-						.. marker .. "\n" .. message.from
+						.. marker .. "\n" .. message.from .. expiry
 				end
 			end
 		end
@@ -257,14 +386,13 @@ script MailPanel extends Logic
 		local title = self:UI("Window/Detail/Subject")
 		local from = self:UI("Window/Detail/From")
 		local body = self:UI("Window/Detail/Body")
-		local reward = self:UI("Window/Detail/Reward")
 		local claim = self:UI("Window/Detail/Claim")
 		local delete = self:UI("Window/Detail/Delete")
 		if selected == nil then
 			if isvalid(title) then title.TextGUIRendererComponent.Text = "메일을 선택해 주세요" end
 			if isvalid(from) then from.TextGUIRendererComponent.Text = "" end
 			if isvalid(body) then body.TextGUIRendererComponent.Text = "" end
-			if isvalid(reward) then reward.TextGUIRendererComponent.Text = "" end
+			self:RenderRewardItems(nil)
 			if isvalid(claim) then claim.Enable = false claim:SetVisible(false) end
 			if isvalid(delete) then delete.Enable = false delete:SetVisible(false) end
 			return
@@ -273,15 +401,15 @@ script MailPanel extends Logic
 		if isvalid(from) then
 			from.TextGUIRendererComponent.Text = selected.from .. " · " .. (selected.from_profile or "")
 		end
-		if isvalid(body) then body.TextGUIRendererComponent.Text = selected.body end
-		local amount = (selected.core or 0) + (selected.score or 0)
-			+ (selected.core_ticket or 0) + (selected.score_ticket or 0)
-		if isvalid(reward) then
-			reward.TextGUIRendererComponent.Text = amount > 0 and
-				("코어 " .. tostring(selected.core or 0) .. " · 점수 " .. tostring(selected.score or 0)
-				.. " · 코어권 " .. tostring(selected.core_ticket or 0)
-				.. " · 점수권 " .. tostring(selected.score_ticket or 0)) or ""
+		if isvalid(body) then
+			local text = selected.body
+			if type(selected.expires_at) == "number" then
+				text = text .. "\n\n유효기간: " .. self:FormatExpiry(selected.expires_at)
+					.. "까지 (한국 시간)"
+			end
+			body.TextGUIRendererComponent.Text = text
 		end
+		local amount = self:RenderRewardItems(selected)
 		if isvalid(claim) then
 			claim.Enable = amount > 0 and not selected.claimed
 			claim:SetVisible(amount > 0)

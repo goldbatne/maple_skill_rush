@@ -17,6 +17,7 @@ script TutorialFlow extends Logic
 	property number StartX = 0
 	property number StartY = 0
 	property number NextRefreshAt = 0
+	property string LastTutorialDotState = ""
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -87,6 +88,7 @@ script TutorialFlow extends Logic
 			or not isvalid(self.CollectionButton) or not isvalid(self.ShopButton)
 			or not isvalid(self.PartyButton) then return end
 		self:BuildLobbyCircle()
+		_OptionsPanel:BuildRedDot(_EntityService:GetEntityByPath("/ui/Tutorial/LobbyButton/RedDot"))
 		local startHandler = self.LobbyButton:ConnectEvent(ButtonClickEvent, function()
 			self:RequestStart()
 		end)
@@ -139,6 +141,15 @@ script TutorialFlow extends Logic
 		end
 		self.LobbyButton.Enable = inLobby
 		self.LobbyButton:SetVisible(inLobby)
+		local db = isvalid(player) and player:GetComponent("script.PlayerDBManager") or nil
+		local tutorialDot = _EntityService:GetEntityByPath("/ui/Tutorial/LobbyButton/RedDot")
+		local shouldMark = inLobby and db ~= nil and db.IsLoadSuccess and not db.TutorialComplete
+		if isvalid(tutorialDot) then tutorialDot.Enable = shouldMark end
+		local dotState = shouldMark and "pending" or "clear"
+		if self.LastTutorialDotState ~= dotState then
+			self.LastTutorialDotState = dotState
+			log("[VRF] tutorial dot=" .. dotState)
+		end
 		self.Guide.Enable = inTutorial
 		self.Guide:SetVisible(inTutorial)
 		if mapName ~= self.LastMapName then
@@ -311,6 +322,7 @@ script TutorialFlow extends Logic
 		candidate.discovered_monsters["m_snail"] = 1
 		if not db:CommitRogueEconomyPayload(candidate, "튜토리얼 완료") then return end
 		db.RogueSettings.tutorial_complete = true
+		db.TutorialComplete = true
 		db.RogueSettings.tutorial_snail_claimed = true
 		collection:SetTamedCount("m_snail", candidate.tamed_monsters["m_snail"])
 		collection.MonsterLevels["m_snail"] = snailLevel

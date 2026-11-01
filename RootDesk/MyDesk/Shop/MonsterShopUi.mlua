@@ -10,12 +10,20 @@ script MonsterShopUi extends Logic
 	property boolean ShopOpen = false
 
 	property table PlatformProducts = {}
+	property boolean FreeCoreAvailable = false
+	property boolean FreeScoreAvailable = false
+	property number NextFreeStatusAt = 0
+	property string LastFreeDotState = ""
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		        self.ButtonEntities = {}
 		        self.ButtonHandlers = {}
 		        self.PlatformProducts = {}
+		        self.FreeCoreAvailable = false
+		        self.FreeScoreAvailable = false
+		        self.NextFreeStatusAt = 0
+		        self.LastFreeDotState = ""
 		        _TimerService:SetTimerOnce(function()
 		            self:BindShopUi()
 		        end, 0.7)
@@ -55,6 +63,9 @@ script MonsterShopUi extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void BindShopUi()
+		        _OptionsPanel:BuildRedDot(self:GetShopUi("ShopOpenButton/RedDot"))
+		        _OptionsPanel:BuildRedDot(self:GetShopUi("MonsterShopWindow/Dialog/Product1/RedDot"))
+		        _OptionsPanel:BuildRedDot(self:GetShopUi("MonsterShopWindow/Dialog/Product2/RedDot"))
 		        self:BindShopButton("ShopOpenButton", function() self:SetShopOpen(not self.ShopOpen) end)
 		        self:BindShopButton("MonsterShopWindow/Dialog/CloseButton", function() self:SetShopOpen(false) end)
 		        local productIds = _MonsterShop:GetCatalogProductIds()
@@ -71,6 +82,9 @@ script MonsterShopUi extends Logic
 		                    end
 		                end
 		                _MonsterShop:RequestCatalogPurchase(product.id)
+		                if product.price == 0 then
+		                    self.NextFreeStatusAt = _UtilLogic.ElapsedSeconds + 2
+		                end
 		                self:RefreshShopUi()
 		            end)
 		        end
@@ -161,6 +175,15 @@ script MonsterShopUi extends Logic
 	@ExecSpace("ClientOnly")
 	method void RefreshShopUi()
 		        local lobby = self:IsLobby()
+		        local localPlayer = _UserService.LocalPlayer
+		        local db = isvalid(localPlayer) and localPlayer:GetComponent("script.PlayerDBManager") or nil
+		        if lobby and db ~= nil and db.IsLoadSuccess
+		            and _UtilLogic.ElapsedSeconds >= self.NextFreeStatusAt then
+		            -- 기간 초기화도 반영한다. 구매 원장은 서버만 읽고 클라이언트는 결과만 받는다.
+		            self.NextFreeStatusAt = _UtilLogic.ElapsedSeconds + 60
+		            self:RequestFreeStatus()
+		        end
+		        self:ApplyFreeRewardDots()
 		        local opener = self:GetShopUi("ShopOpenButton")
 		        if isvalid(opener) then
 		            -- 팝업이 열려 있는 동안 뒤의 로비 메뉴를 숨겨 시각적 겹침과 오입력을 막는다.
@@ -270,6 +293,51 @@ script MonsterShopUi extends Logic
 		        if isvalid(title) and isvalid(title.TextGUIRendererComponent) then
 		            title.TextGUIRendererComponent.Text = "상점"
 		        end
+	end
+
+	@ExecSpace("Server")
+	method void RequestFreeStatus()
+		-- 클라이언트가 저장된 구매 한도를 직접 읽지 않도록 서버의 동일한 판정을 사용한다.
+		self:PushFreeStatus(senderUserId)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void PushFreeStatus(string userId)
+		local player = _UserService:GetUserEntityByUserId(userId)
+		local db = isvalid(player) and player:GetComponent("script.PlayerDBManager") or nil
+		if db == nil or not db.IsLoadSuccess then return end
+		local limits = db.RogueSavedPayload.purchase_limits or {}
+		local core = _MonsterShop:GetProduct("PRODUCT_A")
+		local score = _MonsterShop:GetProduct("PRODUCT_D")
+		local coreAvailable = core ~= nil and core.enabled and core.price == 0
+			and _MonsterShop:GetPurchaseCount(core, limits) < core.limit
+		local scoreAvailable = score ~= nil and score.enabled and score.price == 0
+			and _MonsterShop:GetPurchaseCount(score, limits) < score.limit
+		self:ReceiveFreeStatus(coreAvailable, scoreAvailable, userId)
+	end
+
+	@ExecSpace("Client")
+	method void ReceiveFreeStatus(boolean coreAvailable, boolean scoreAvailable)
+		self.FreeCoreAvailable = coreAvailable
+		self.FreeScoreAvailable = scoreAvailable
+		self:ApplyFreeRewardDots()
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ApplyFreeRewardDots()
+		local lobby = self:IsLobby()
+		local opener = self:GetShopUi("ShopOpenButton/RedDot")
+		local core = self:GetShopUi("MonsterShopWindow/Dialog/Product1/RedDot")
+		local score = self:GetShopUi("MonsterShopWindow/Dialog/Product2/RedDot")
+		if isvalid(opener) then opener.Enable = lobby and (self.FreeCoreAvailable or self.FreeScoreAvailable) end
+		if isvalid(core) then core.Enable = self.ShopOpen and self.FreeCoreAvailable end
+		if isvalid(score) then score.Enable = self.ShopOpen and self.FreeScoreAvailable end
+		local state = (self.FreeCoreAvailable and "core" or "-")
+			.. "/" .. (self.FreeScoreAvailable and "score" or "-")
+		if self.LastFreeDotState ~= state then
+			self.LastFreeDotState = state
+			log("[VRF] shop free reward dots=" .. state)
+		end
 	end
 
 end

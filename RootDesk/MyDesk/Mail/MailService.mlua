@@ -4,6 +4,7 @@ script MailService extends Logic
 	-- 개인 월드 소유자 ID. 보상 발송은 이 계정만 서버에서 허용한다.
 	property string OperatorUserId = "20372000905997288"
 	property string InboxTag = "Launch20261007_MAIL_INBOX_V1"
+	property string WeekendTag = "Launch20261007_MAIL_WEEKEND_V1"
 	property string CampaignStorage = "Launch20261007_RogueMail"
 	property string CampaignTag = "Launch20261007_MAIL_CAMPAIGN_V1"
 	property table LastSendAt = {}
@@ -11,6 +12,7 @@ script MailService extends Logic
 	property table NextRequestAt = {}
 	property table NextNoticeAt = {}
 	property integer NextSerial = 0
+	property integer WeekendBoundaryTimer = 0
 
 	@ExecSpace("ServerOnly")
 	method void ConfigureLaunchStorage(boolean makerTest)
@@ -18,6 +20,7 @@ script MailService extends Logic
 		-- PlayerDBManager.ConfigureLaunchStorage와 동일한 출시 버전을 유지한다.
 		local prefix = makerTest and "MakerTest_Launch20261007_" or "Launch20261007_"
 		self.InboxTag = prefix .. "MAIL_INBOX_V1"
+		self.WeekendTag = prefix .. "MAIL_WEEKEND_V1"
 		self.CampaignStorage = prefix .. "RogueMail"
 		self.CampaignTag = prefix .. "MAIL_CAMPAIGN_V1"
 	end
@@ -31,6 +34,36 @@ script MailService extends Logic
 		self.NextRequestAt = {}
 		self.NextNoticeAt = {}
 		log("[Mail] 출시 우편함 시작 tag=" .. self.InboxTag)
+		log("[VRF] weekend mail service ready tag=" .. self.WeekendTag)
+		self:ScheduleWeekendBoundary()
+	end
+
+	@ExecSpace("ServerOnly")
+	method void OnEndPlay()
+		-- 월드가 종료되면 다음 날짜의 발송 예약을 정리한다.
+		if self.WeekendBoundaryTimer ~= 0 then
+			_TimerService:ClearTimer(self.WeekendBoundaryTimer)
+			self.WeekendBoundaryTimer = 0
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void ScheduleWeekendBoundary()
+		-- 한국 시간의 다음 자정에 전체 유저용 새 우편을 확인한다.
+		if self.WeekendBoundaryTimer ~= 0 then
+			_TimerService:ClearTimer(self.WeekendBoundaryTimer)
+			self.WeekendBoundaryTimer = 0
+		end
+		local now = DateTime.UtcNow.Elapsed
+		local korea = DateTime(now + 9 * 60 * 60 * 1000)
+		local nextDay = DateTime(korea.Year, korea.Month, korea.Day).Elapsed
+			+ 24 * 60 * 60 * 1000 - 9 * 60 * 60 * 1000
+		local delay = math.max(1, (nextDay - now) / 1000)
+		self.WeekendBoundaryTimer = _TimerService:SetTimerOnce(function()
+			self.WeekendBoundaryTimer = 0
+			self:GetWeekendMessages()
+			self:ScheduleWeekendBoundary()
+		end, delay)
 	end
 
 	@ExecSpace("ServerOnly")
@@ -126,14 +159,91 @@ script MailService extends Logic
 	end
 
 	@ExecSpace("ServerOnly")
+	method table CreateWeekendRewardMessage()
+		-- 한국 시간의 토요일과 일요일에 전체 유저에게 보낼 공용 우편을 만든다.
+		local now = DateTime.UtcNow.Elapsed
+		local korea = DateTime(now + 9 * 60 * 60 * 1000)
+		if korea.DayOfWeek ~= DayOfWeekType.Saturday
+			and korea.DayOfWeek ~= DayOfWeekType.Sunday then return nil end
+		return {
+			id = string.format("WEEKEND_%04d%02d%02d", korea.Year, korea.Month, korea.Day),
+			kind = "campaign",
+			from = "운영팀",
+			from_profile = "",
+			subject = "주말 핫타임 보상",
+			body = "안녕하세요 메이플 스킬 러시입니다. 주말 핫타임 보상입니다.",
+			created_at = now,
+			expires_at = now + 24 * 60 * 60 * 1000,
+			core = 10,
+			score = 10,
+			core_ticket = 0,
+			score_ticket = 0,
+		}
+	end
+
+	@ExecSpace("ServerOnly")
+	method table GetWeekendMessages()
+		-- 전체 유저가 공유하는 날짜별 우편을 한 번 기록하고 24시간 뒤 제거한다.
+		local storage = _DataStorageService:GetGlobalDataStorage(self.CampaignStorage)
+		local messages = self:ReadMessages(storage, self.WeekendTag)
+		if messages == nil then return nil end
+		local active = {}
+		local now = DateTime.UtcNow.Elapsed
+		for _, message in ipairs(messages) do
+			if type(message.expires_at) == "number" and now >= message.expires_at then
+				local code = storage:DeleteAndWait("MailV1:" .. message.id)
+				if code ~= 0 then
+					log_error("[Mail] 주말 우편 만료 삭제 실패 code=" .. tostring(code))
+				else
+					log("[VRF] weekend mail expired id=" .. message.id)
+				end
+			else
+				active[#active + 1] = message
+			end
+		end
+		local newMessage = self:CreateWeekendRewardMessage()
+		if newMessage ~= nil then
+			local exists = false
+			for _, message in ipairs(messages) do
+				if message.id == newMessage.id then exists = true break end
+			end
+			if not exists and self:StoreMessage(storage, self.WeekendTag, newMessage, 100) then
+				active[#active + 1] = newMessage
+				log("[VRF] weekend mail delivered all id=" .. newMessage.id
+					.. " expires=" .. tostring(newMessage.expires_at))
+			end
+		end
+		return active
+	end
+
+	@ExecSpace("ServerOnly")
+	@EventSender("Service", "UserService")
+	handler HandleWeekendUserEnter(UserEnterEvent event)
+		-- 세계가 주말 중 시작되었다면 첫 접속 때 공용 우편을 발송한다.
+		self:ConfigureLaunchStorage(Environment:IsMakerPlay())
+		self:GetWeekendMessages()
+	end
+
+	@ExecSpace("ServerOnly")
 	method table GetAllMessages(string profileCode)
 		local userStorage = _DataStorageService:GetUserDataStorage(profileCode)
 		local personal = self:ReadMessages(userStorage, self.InboxTag)
 		local campaigns = self:ReadMessages(_DataStorageService:GetGlobalDataStorage(self.CampaignStorage), self.CampaignTag)
-		if personal == nil or campaigns == nil then return nil end
+		local weekend = self:GetWeekendMessages()
+		if personal == nil or campaigns == nil or weekend == nil then return nil end
 		local all = {}
-		for _, message in ipairs(personal) do all[#all + 1] = message end
-		for _, message in ipairs(campaigns) do all[#all + 1] = message end
+		local now = DateTime.UtcNow.Elapsed
+		for _, message in ipairs(personal) do
+			if type(message.expires_at) ~= "number" or now < message.expires_at then
+				all[#all + 1] = message
+			end
+		end
+		for _, message in ipairs(campaigns) do
+			if type(message.expires_at) ~= "number" or now < message.expires_at then
+				all[#all + 1] = message
+			end
+		end
+		for _, message in ipairs(weekend) do all[#all + 1] = message end
 		table.sort(all, function(a, b) return (a.created_at or 0) > (b.created_at or 0) end)
 		return all
 	end
@@ -277,6 +387,12 @@ script MailService extends Logic
 			if message.id == mailId then found = message break end
 		end
 		if found == nil or (found.kind ~= "operator" and found.kind ~= "campaign") then return end
+		if type(found.expires_at) == "number"
+			and DateTime.UtcNow.Elapsed >= found.expires_at then
+			self:NotifyResult("보상 수령 기간이 지났습니다.", false, userId)
+			self:RequestInboxForPlayer(player, userId)
+			return
+		end
 		local amounts = {found.core or 0, found.score or 0,
 			found.core_ticket or 0, found.score_ticket or 0}
 		local hasReward = false
@@ -304,6 +420,12 @@ script MailService extends Logic
 		candidate.monster_growth_currency += amounts[2]
 		candidate.monster_selection_tickets += amounts[3]
 		candidate.monster_enhance_tickets += amounts[4]
+		if type(found.expires_at) == "number"
+			and DateTime.UtcNow.Elapsed >= found.expires_at then
+			self:NotifyResult("보상 수령 기간이 지났습니다.", false, userId)
+			self:RequestInboxForPlayer(player, userId)
+			return
+		end
 		if not db:CommitRogueEconomyPayload(candidate, "메일 보상 수령 " .. mailId) then return end
 		db.RogueSettings = candidate.settings
 		collection.MonsterGrowthCore = candidate.growth_core
@@ -311,6 +433,9 @@ script MailService extends Logic
 		collection.MonsterSelectionTickets = candidate.monster_selection_tickets
 		collection.MonsterEnhancementTickets = candidate.monster_enhance_tickets
 		log("[Mail] 보상 수령 user=" .. userId .. " id=" .. mailId)
+		if string.sub(mailId, 1, 8) == "WEEKEND_" then
+			log("[VRF] weekend reward claimed user=" .. userId .. " id=" .. mailId)
+		end
 		self:NotifyResult("보상을 받았습니다.", true, userId)
 		self:RequestInboxForPlayer(player, userId)
 	end

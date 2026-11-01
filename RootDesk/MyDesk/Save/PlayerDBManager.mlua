@@ -18,6 +18,9 @@ script PlayerDBManager extends Component
 	@TargetUserSync
 	property boolean IsLoadSuccess = false
 
+	@TargetUserSync
+	property boolean TutorialComplete = false
+
 	property boolean permDirty = false
 
 	property boolean runDirty = false
@@ -1050,6 +1053,7 @@ script PlayerDBManager extends Component
 			local volume = payload.settings[volumeKey]
 			if volume ~= nil and (type(volume) ~= "number" or volume < 0 or volume > 1) then return false end
 		end
+		self.TutorialComplete = self.RogueSettings.tutorial_complete == true
 		if payload.settings.mail_claims ~= nil then
 			if type(payload.settings.mail_claims) ~= "table" then return false end
 			for mailId, marker in pairs(payload.settings.mail_claims) do

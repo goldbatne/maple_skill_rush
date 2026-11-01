@@ -88,6 +88,36 @@ script OptionsPanel extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
+	method void BuildRedDot(Entity dot)
+		-- UIBuilder가 배치한 노드를 투명 픽셀 원으로 바꿔 해상도별 사각 배경을 없앤다.
+		if not isvalid(dot) or isvalid(dot.PixelGUIRendererComponent) then return end
+		dot:RemoveComponent("MOD.Core.SpriteGUIRendererComponent")
+		local pixels = dot:AddComponent("MOD.Core.PixelGUIRendererComponent")
+		pixels.RaycastTarget = false
+		pixels:ResetWithColor(24, 24, Color(0, 0, 0, 0))
+		for y = 1, 24 do
+			for x = 1, 24 do
+				local outer = 0
+				local inner = 0
+				for sy = 0, 1 do
+					for sx = 0, 1 do
+						local dx = x - 12.75 + sx * 0.5
+						local dy = y - 12.75 + sy * 0.5
+						local distance = dx * dx + dy * dy
+						if distance <= 121 then outer += 0.25 end
+						if distance <= 81 then inner += 0.25 end
+					end
+				end
+				if outer > 0 then
+					local border = Color(1, 0.976, 0.91, outer)
+					local center = Color(0.875, 0.188, 0.263, inner)
+					pixels:SetPixel(x, y, inner > 0 and center or border)
+				end
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
 	method void Bind()
 		if self.Bound then return end
 		if not isvalid(self:UI("OpenButton")) or not isvalid(self:UI("Window/BgmValue"))
