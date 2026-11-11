@@ -1,7 +1,7 @@
 @Logic
 script SkillEffect extends Logic
 
-	property string MemoryMonkFollowupSfxRuid = "879af07877bb4b42b5da9a7a4c51f5ae"
+	property string MemoryMonkFollowupSfxRuid = "e5bc112a8e9f4636943318e514eaec7a"
 
 	@ExecSpace("ServerOnly")
 	method void PlayCast(string skillId, Entity caster, boolean flipX)
